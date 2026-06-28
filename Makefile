@@ -4,8 +4,8 @@ install:
 	./install.sh
 
 test:
-	python3 -m py_compile src/ollama_codex_proxy.py
-	python3 tests/test_proxy_parser.py
+	python3 -m py_compile src/ollama_codex_proxy.py src/ollama_codex_proxy/*.py
+	for test_file in tests/test_*.py; do python3 "$$test_file"; done
 	bash -n bin/llama-codex install.sh
 
 status:

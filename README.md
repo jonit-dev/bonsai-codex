@@ -236,5 +236,5 @@ make test
 bin/llama-codex              wrapper CLI
 src/ollama_codex_proxy.py    compatibility proxy
 install.sh                   symlink installer
-tests/test_proxy_parser.py   parser smoke tests
+tests/test_*.py              focused proxy behavior tests
 ```

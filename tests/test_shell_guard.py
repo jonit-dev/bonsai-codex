@@ -1,0 +1,296 @@
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+import ollama_codex_proxy as proxy
+
+
+def test_rewrites_touch_to_apply_patch():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "touch tasklib/__init__.py tasklib/models.py"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "apply_patch <<'PATCH_LLAMACODEX'" in data["cmd"]
+    assert "*** Add File: tasklib/__init__.py" in data["cmd"]
+    assert "*** Add File: tasklib/models.py" in data["cmd"]
+    assert "touch" not in data["cmd"]
+
+
+def test_rewritten_touch_rejects_top_level_module_shadowing_package():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "touch notes.py"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "[ -d notes ]" in data["cmd"]
+    assert "edit the package files instead" in data["cmd"]
+    assert "*** Add File: notes.py" in data["cmd"]
+
+
+def test_rewrites_cat_heredoc_to_apply_patch():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "cat > tasklib/models.py << 'EOF'\nclass Task:\n    pass\nEOF"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "apply_patch <<'PATCH_LLAMACODEX'" in data["cmd"]
+    assert "*** Delete File: tasklib/models.py" in data["cmd"]
+    assert "*** Add File: tasklib/models.py" in data["cmd"]
+    assert "+class Task:" in data["cmd"]
+    assert "cat >" not in data["cmd"]
+
+
+def test_rewrites_cat_heredoc_with_redirect_after_delimiter():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "cat <<'EOF' > ledger/store.py\nclass LedgerStore:\n    pass\nEOF"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "*** Add File: ledger/store.py" in data["cmd"]
+    assert "+class LedgerStore:" in data["cmd"]
+    assert "cat <<" not in data["cmd"]
+
+
+def test_rejected_shell_write_reports_original_command():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "printf 'x' > ledger/store.py"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "proxy rejected this edit command" in data["cmd"]
+    assert "printf" in data["cmd"]
+    assert "ledger/store.py" in data["cmd"]
+
+
+def test_rewrites_echo_redirect_to_apply_patch():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps(
+            {
+                "cmd": "echo 'from .store import LedgerStore\nfrom .server import create_app' > ledger/__init__.py"
+            }
+        ),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "*** Add File: ledger/__init__.py" in data["cmd"]
+    assert "+from .store import LedgerStore" in data["cmd"]
+    assert "+from .server import create_app" in data["cmd"]
+    assert "echo" not in data["cmd"]
+
+
+def test_rejects_rm_source_edit_command():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "rm bookmarks/vault.py"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "proxy rejected this edit command" in data["cmd"]
+    assert "do not use touch, rm" in data["cmd"]
+    assert "rm bookmarks/vault.py" in data["cmd"]
+
+
+def test_unwraps_nested_exec_command_shell_text():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": 'exec_command("exec_command", {"cmd": "ls -la", "workdir": "/tmp"})'}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert data["cmd"] == "ls -la"
+    assert data["workdir"] == "/tmp"
+
+
+def test_unwrapped_nested_exec_still_applies_shell_write_guard():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": 'exec_command("exec_command", {"cmd": "echo ok > a.txt"})'}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "*** Add File: a.txt" in data["cmd"]
+    assert "+ok" in data["cmd"]
+
+
+def test_rewrites_apply_patch_file_patch_flags_when_payload_is_real_patch():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps(
+            {
+                "cmd": "apply_patch --file ignored.js --patch '*** Begin Patch\n*** Update File: src/planner.js\n@@\n-old\n+new\n*** End Patch'"
+            }
+        ),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "llama-codex apply_patch compatibility" in data["cmd"]
+    assert "*** Update File: src/planner.js" in data["cmd"]
+    assert "--file" not in data["cmd"]
+
+
+def test_rejects_apply_patch_file_patch_flags_with_non_patch_payload():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "apply_patch --file src/planner.js --patch 'const id = `a${newTrip.activities.length + 1}`;'"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "rejected malformed apply_patch command" in data["cmd"]
+    assert "does not accept --file or --patch flags" in data["cmd"]
+    assert "src/planner.js" in data["cmd"]
+
+
+def test_rejects_malformed_apply_patch_shell_command_with_guidance():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "apply_patch --file src/planner.js"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "rejected malformed apply_patch command" in data["cmd"]
+    assert "does not accept --file or --patch flags" in data["cmd"]
+    assert "src/planner.js" in data["cmd"]
+
+
+def test_repairs_apply_patch_heredoc_closed_before_end_patch():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps(
+            {
+                "cmd": (
+                    "apply_patch <<'PATCH'\n"
+                    "*** Begin Patch\n"
+                    "*** Add File: a.py\n"
+                    "+ok = True\n"
+                    "PATCH\n"
+                    "*** End Patch\n"
+                    "PATCH"
+                )
+            }
+        ),
+        True,
+    )
+    data = json.loads(arguments)
+    assert data["cmd"].startswith("apply_patch <<")
+    assert "*** End Patch\n" in data["cmd"]
+    assert "PATCH\n*** End Patch" not in data["cmd"]
+
+
+def test_rewrites_wrapped_unified_diff_heredoc_to_compat_command():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps(
+            {
+                "cmd": (
+                    "apply_patch <<'PATCH'\n"
+                    "*** Begin Patch\n"
+                    "--- a.py\n"
+                    "+++ a.py\n"
+                    "@@ -1 +1 @@\n"
+                    "-old\n"
+                    "+new\n"
+                    "*** End Patch\n"
+                    "PATCH"
+                )
+            }
+        ),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "llama-codex apply_patch compatibility" in data["cmd"]
+    assert "git apply --recount" in data["cmd"]
+    assert "git apply -p0 --recount" in data["cmd"]
+    assert "patch --batch" not in data["cmd"]
+    assert "PY_LLAMACODEX_DIFF" in data["cmd"]
+    assert "rest.startswith(prefix)" in data["cmd"]
+    assert "grep -q '^\\*\\*\\* Begin Patch'" in data["cmd"]
+    assert "grep -qi '^Invalid patch'" in data["cmd"]
+    assert "*** Begin Patch" not in data["cmd"].split("cat >\"$patch_file\"", 1)[-1]
+
+
+def test_repairs_complete_apply_patch_heredoc_missing_add_prefixes():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps(
+            {
+                "cmd": (
+                    "apply_patch <<'PATCH'\n"
+                    "*** Begin Patch\n"
+                    "*** Delete File: a.py\n"
+                    "*** Add File: a.py\n"
+                    "import json\n"
+                    "\n"
+                    "print('ok')\n"
+                    "*** End Patch\n"
+                    "PATCH"
+                )
+            }
+        ),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "+import json" in data["cmd"]
+    assert "+print('ok')" in data["cmd"]
+    assert "\nimport json\n" not in data["cmd"]
+
+
+def test_repairs_apply_patch_heredoc_missing_end_marker():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps(
+            {
+                "cmd": (
+                    "apply_patch <<'PATCH'\n"
+                    "*** Begin Patch\n"
+                    "*** Delete File: a.py\n"
+                    "*** Add File: a.py\n"
+                    "import json\n"
+                    "print('ok')\n"
+                    "PATCH\n"
+                    "PATCH"
+                )
+            }
+        ),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "+import json" in data["cmd"]
+    assert "+print('ok')" in data["cmd"]
+    assert "*** End Patch\n" in data["cmd"]
+    assert data["cmd"].count("\nPATCH") == 1
+
+
+def test_non_target_exec_command_passes_through():
+    original = json.dumps({"cmd": "python3 -m unittest"})
+    assert proxy.apply_exec_guard("exec_command", original, True) == original
+
+
+if __name__ == "__main__":
+    test_rewrites_touch_to_apply_patch()
+    test_rewritten_touch_rejects_top_level_module_shadowing_package()
+    test_rewrites_cat_heredoc_to_apply_patch()
+    test_rewrites_cat_heredoc_with_redirect_after_delimiter()
+    test_rejected_shell_write_reports_original_command()
+    test_rewrites_echo_redirect_to_apply_patch()
+    test_rejects_rm_source_edit_command()
+    test_unwraps_nested_exec_command_shell_text()
+    test_unwrapped_nested_exec_still_applies_shell_write_guard()
+    test_rewrites_apply_patch_file_patch_flags_when_payload_is_real_patch()
+    test_rejects_apply_patch_file_patch_flags_with_non_patch_payload()
+    test_rejects_malformed_apply_patch_shell_command_with_guidance()
+    test_repairs_apply_patch_heredoc_closed_before_end_patch()
+    test_rewrites_wrapped_unified_diff_heredoc_to_compat_command()
+    test_repairs_complete_apply_patch_heredoc_missing_add_prefixes()
+    test_repairs_apply_patch_heredoc_missing_end_marker()
+    test_non_target_exec_command_passes_through()
+    print('shell guard tests passed')
