@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# bonsai-codex - Codex driven by the local Bonsai 2 27B on the RTX 2080.
+#
+#   bonsai-codex                                    interactive Codex TUI
+#   bonsai-codex --auto                             same, with approvals bypassed
+#   bonsai-codex exec "do the thing"                one-shot
+#   bonsai-codex --server-host=192.168.1.133 --port=8090 [codex args]
+#   bonsai-codex --stop                             stop llama-server and the proxy
+#
+# Everything not listed under "bonsai options" below is forwarded to Codex unchanged, so
+# normal Codex commands (exec, resume, review, -m, -c ...) and llama-codex's own
+# --llama-* flags all work here.
+#
+# Starts llama-server on demand when the server is local (first start loads ~6 GB and takes
+# about a minute).
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/bonsai-codex"
+SERVER_LOG="$STATE/llama-server.log"
+
+SERVER_HOST="${SERVER_HOST:-127.0.0.1}"
+PORT="${PORT:-8080}"
+PROXY_PORT="${PROXY_PORT:-11435}"
+auto=false
+stop=false
+codex_args=()
+
+usage() {
+  sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  cat <<'EOF'
+
+bonsai options (everything else goes to Codex):
+  --server-host HOST   llama-server address; another machine's IP to use its GPU
+  --port N             llama-server port (default 8080)
+  --auto               bypass approvals and sandboxing, as `opencode --auto` does
+  --stop               stop llama-server and the proxy
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --server-host=*) SERVER_HOST="${1#*=}"; shift ;;
+    --server-host) SERVER_HOST="${2:?--server-host needs a value}"; shift 2 ;;
+    --port=*) PORT="${1#*=}"; shift ;;
+    --port) PORT="${2:?--port needs a value}"; shift 2 ;;
+    --auto) auto=true; shift ;;
+    --stop) stop=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) codex_args+=("$1"); shift ;;
+  esac
+done
+
+server_url="http://${SERVER_HOST}:${PORT}"
+is_local=false
+case "${SERVER_HOST}" in
+  127.0.0.1|localhost|::1) is_local=true ;;
+esac
+
+# --max-time matters: without it an unreachable remote host hangs until curl gives up.
+up() { curl -fsS --max-time 3 "${server_url}/health" >/dev/null 2>&1; }
+
+if [[ "${stop}" == true ]]; then
+  LLAMA_CODEX_OLLAMA_URL="${server_url}" LLAMA_CODEX_PROXY_PORT="${PROXY_PORT}" \
+    "${HERE}/bin/llama-codex" --llama-stop 2>/dev/null || true
+  pkill -f "llama-server .*Ternary-Bonsai" && echo "stopped llama-server" || echo "llama-server was not running"
+  exit 0
+fi
+
+mkdir -p "${STATE}"
+
+if ! up; then
+  if [[ "${is_local}" != true ]]; then
+    echo "bonsai-codex: no llama-server at ${server_url}" >&2
+    echo "bonsai-codex: start one on that machine with: HOST=0.0.0.0 PORT=${PORT} scripts/run-server.sh" >&2
+    exit 1
+  fi
+  echo "bonsai-codex: starting llama-server on :${PORT} (log: ${SERVER_LOG})" >&2
+  PORT="${PORT}" nohup "${HERE}/scripts/run-server.sh" >"${SERVER_LOG}" 2>&1 &
+  srv_pid=$!
+  for _ in $(seq 120); do
+    up && break
+    sleep 2
+    kill -0 "${srv_pid}" 2>/dev/null || {
+      echo "bonsai-codex: llama-server died, see ${SERVER_LOG}" >&2
+      tail -20 "${SERVER_LOG}" >&2
+      exit 1
+    }
+  done
+  up || { echo "bonsai-codex: llama-server did not come up in 4 min, see ${SERVER_LOG}" >&2; exit 1; }
+  echo "bonsai-codex: llama-server ready" >&2
+fi
+
+# Ask the server what window it actually loaded instead of assuming: a request budgeted
+# against a window the server does not have is refused outright.
+loaded_ctx="$(curl -fsS --max-time 5 "${server_url}/props" 2>/dev/null \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("default_generation_settings",{}).get("n_ctx",""))' 2>/dev/null \
+  || true)"
+
+# Isolated CODEX_HOME: ~/.codex's skills and hooks alone blow the window.
+export CODEX_HOME="${CODEX_HOME:-${STATE}/codex-home}"
+mkdir -p "${CODEX_HOME}"
+
+export LLAMA_CODEX_OLLAMA_URL="${server_url}"
+export LLAMA_CODEX_MODEL="${LLAMA_CODEX_MODEL:-bonsai}"
+export LLAMA_CODEX_CONTEXT_WINDOW="${LLAMA_CODEX_CONTEXT_WINDOW:-${loaded_ctx:-24576}}"
+# 2048 (the proxy default) truncates the thinking trace before any tool call.
+export LLAMA_CODEX_MAX_OUTPUT_TOKENS="${LLAMA_CODEX_MAX_OUTPUT_TOKENS:-12288}"
+
+if [[ "${auto}" == true ]]; then
+  codex_args=(--dangerously-bypass-approvals-and-sandbox "${codex_args[@]}")
+fi
+
+if ((${#codex_args[@]})); then
+  exec "${HERE}/bin/llama-codex" "${codex_args[@]}"
+fi
+exec "${HERE}/bin/llama-codex"

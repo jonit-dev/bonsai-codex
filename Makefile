@@ -6,7 +6,7 @@ install:
 test:
 	python3 -m py_compile src/ollama_codex_proxy.py src/ollama_codex_proxy/*.py
 	for test_file in tests/test_*.py; do python3 "$$test_file" || exit 1; done
-	bash -n bin/llama-codex install.sh
+	bash -n bin/llama-codex bin/bonsai-codex install.sh
 
 status:
 	./bin/llama-codex --llama-status

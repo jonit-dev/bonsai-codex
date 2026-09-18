@@ -116,22 +116,56 @@ scripts/run-codex.sh /path/to/project "Implement create_app() so the tests pass.
 without them; it also replaces any proxy already on the port, because llama-codex happily
 reuses a running proxy and will then serve code from a checkout you are not editing.
 
+### The easy command: `bonsai-codex`
+
+`./install.sh` puts a `bonsai-codex` command on your PATH. It starts llama-server on demand,
+sets the proxy and context up, and forwards everything it does not recognise straight to Codex:
+
+```sh
+bonsai-codex                                     # interactive Codex TUI
+bonsai-codex --auto                              # same, approvals bypassed
+bonsai-codex exec "implement create_app() so the tests pass"
+bonsai-codex resume --last                       # any Codex subcommand or flag
+bonsai-codex --llama-lean exec "..."             # llama-codex's own flags work too
+```
+
+| bonsai option | meaning |
+|---|---|
+| `--server-host HOST` | llama-server address; another machine's IP to use its GPU |
+| `--port N` | llama-server port (default 8080) |
+| `--auto` | bypass approvals and sandboxing, the same shorthand `opencode --auto` uses |
+| `--stop` | stop llama-server and the proxy |
+
+`--auto` is not a Codex flag — Codex 0.154 rejects it and spells the same thing
+`--dangerously-bypass-approvals-and-sandbox`. The launcher translates, so the habit works here.
+Anything else on the command line is passed through untouched.
+
+The launcher reads the loaded window from the server's `/props` and sets
+`LLAMA_CODEX_CONTEXT_WINDOW` to match, so the client and server cannot drift apart — the
+mismatch that makes the proxy budget requests against a window the server does not have. It
+also keeps its own `CODEX_HOME` under `~/.local/state/bonsai-codex`, because `~/.codex`'s
+skills and hooks alone are enough to exceed the window.
+
 ### Driving it from another machine
 
 The model does not have to run on the machine you type on. Serve it to the LAN on the box with
-the GPU, and point `run-codex.sh` at that address from anywhere else on the same network:
+the GPU, and point the client at that address from anywhere else on the same network:
 
 ```sh
 # on the machine with the GPU
 HOST=0.0.0.0 PORT=8080 scripts/run-server.sh
 
 # on any other machine on the same wifi (a checkout of this repo, and Codex CLI installed)
-SERVER_HOST=192.168.1.133 PORT=8080 scripts/run-codex.sh /path/to/project "Implement create_app() so the tests pass."
+bonsai-codex --server-host=192.168.1.133 --port=8080 exec "implement create_app() so the tests pass"
+SERVER_HOST=192.168.1.133 PORT=8080 scripts/run-codex.sh /path/to/project "same task"   # equivalent
 ```
 
-`SERVER_HOST` changes both the health probe and the backend the proxy talks to, so the whole
-chain — Codex, the proxy, llama-server — runs against the remote card. The proxy itself still
-runs locally, from this checkout; only its upstream moves.
+`bonsai-codex` is the shorter route: it needs no server running locally and starts nothing, so
+an unreachable host fails immediately with the `HOST=0.0.0.0` command to run on the other side.
+`SERVER_HOST`/`PORT` do the same for `run-codex.sh`, changing both the health probe and the
+backend the proxy talks to, so the whole chain — Codex, the proxy, llama-server — runs against
+the remote card. The proxy itself still runs locally, from this checkout; only its upstream
+moves.
 
 **The firewall is the part that bites.** `llama-server` binds `0.0.0.0` happily and logs
 nothing wrong, but ufw's default incoming policy is `deny`, so an outside connection is dropped
@@ -158,9 +192,11 @@ client gives an encrypted, authenticated path with no open port on the wifi.
 
 Two more things worth knowing when the two machines are separate:
 
-- **The context window is set on both sides.** `LLAMA_CODEX_CONTEXT_WINDOW` (24576) must match
-  the server's `-c`; a mismatch makes the proxy budget requests against a window the server
-  does not have.
+- **The context window is set on both sides.** `LLAMA_CODEX_CONTEXT_WINDOW` must match the
+  server's `-c`; a mismatch makes the proxy budget requests against a window the server does
+  not have. `bonsai-codex` reads the loaded window from `/props` and matches it for you;
+  `run-codex.sh` does not, so set `LLAMA_CODEX_CONTEXT_WINDOW` by hand when you drive a remote
+  server with it.
 - **Turn latency is decode-bound at ~20-26 t/s** and is unchanged by the network — but a wifi
   drop mid-generation loses the turn, because the proxy holds one long-lived HTTP request to
   the server. Prefer ethernet or a stable 5 GHz link for long runs.
