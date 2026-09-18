@@ -13,7 +13,6 @@ from .patches import (
     patch_file_line,
     repair_add_file_content_lines,
     repair_wrapped_unified_diff,
-    replace_file_patch,
     sanitize_patch_text,
     shorthand_patch_command,
     unified_add_file_command,

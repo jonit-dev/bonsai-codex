@@ -33,21 +33,11 @@ def add_file_patch(path, content):
     return "\n".join(lines)
 
 
-def replace_file_patch(path, content):
+def delete_file_patch(path):
     file_line = patch_file_line(path)
     if file_line is None:
         return None
-    add_patch = add_file_patch(path, content)
-    if add_patch is None:
-        return None
-    return "\n".join(
-        [
-            "*** Begin Patch",
-            f"*** Delete File: {file_line}",
-            *add_patch.splitlines()[1:-1],
-            "*** End Patch",
-        ]
-    )
+    return "\n".join(["*** Begin Patch", f"*** Delete File: {file_line}", "*** End Patch"])
 
 
 def apply_patch_command(patch):
@@ -273,11 +263,9 @@ def extract_patch_argument(arguments):
 
 def conditional_apply_patch_command(path, content):
     add_patch = add_file_patch(path, content)
-    replace_patch = replace_file_patch(path, content)
-    if add_patch is None or replace_patch is None:
+    delete_patch = delete_file_patch(path)
+    if add_patch is None or delete_patch is None:
         return None
-    add_delimiter = patch_delimiter(add_patch)
-    replace_delimiter = patch_delimiter(replace_patch)
     quoted_path = shlex.quote(path)
     guard = []
     if "/" not in path and path.endswith(".py"):
@@ -291,17 +279,16 @@ def conditional_apply_patch_command(path, content):
             ),
             "fi",
         ]
+    # Delete and add must be separate apply_patch calls: Codex's apply_patch rejects a
+    # patch carrying two operations for the same path ("multiple operations target ...").
     return "\n".join(
         [
             *guard,
             f"if [ -e {quoted_path} ]; then",
-            f"apply_patch <<'{replace_delimiter}'",
-            replace_patch,
-            replace_delimiter,
+            apply_patch_command(delete_patch),
+            apply_patch_command(add_patch),
             "else",
-            f"apply_patch <<'{add_delimiter}'",
-            add_patch,
-            add_delimiter,
+            apply_patch_command(add_patch),
             "fi",
         ]
     )
