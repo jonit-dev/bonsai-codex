@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shlex
 
@@ -105,6 +106,42 @@ def rewrite_cat_heredoc(cmd):
         return None
     rewritten = with_trailing_commands(command, match.group("tail"))
     return None if rewritten is None else leading + rewritten
+
+
+def rewrite_copy_command(cmd):
+    """Turn `mv src dst` / `cp src dst` into a patch for dst when src is readable.
+
+    Models draft into a scratch file and then move it into place; rejecting that throws
+    away the whole draft (observed on a real repo: a complete spec lost on `mv`). Reading
+    the source here keeps the edit on the patch path, so the destination is still created
+    through apply_patch and the unsafe-path check.
+    """
+    prefix = ""
+    cd_prefix = re.match(r"^\s*cd\s+(?:\S+|'[^']*'|\"[^\"]*\")\s*&&\s*", cmd)
+    if cd_prefix:
+        prefix = cmd[: cd_prefix.end()]
+        cmd = cmd[cd_prefix.end():]
+    try:
+        parts = shlex.split(cmd)
+    except ValueError:
+        return None
+    if len(parts) < 3 or parts[0] not in ("mv", "cp"):
+        return None
+    source, destination = parts[1], parts[2]
+    if not os.path.isfile(source):
+        return None
+    try:
+        if os.path.getsize(source) > 200_000:
+            return None
+        with open(source, encoding="utf-8") as handle:
+            content = handle.read()
+    except OSError:
+        return None
+    command = conditional_apply_patch_command(destination, content)
+    if command is None:
+        return None
+    tail = " ".join(shlex.quote(part) for part in parts[3:])
+    return prefix + command + (f"\n{tail}" if tail else "")
 
 
 def rewrite_touch(cmd):
@@ -244,7 +281,12 @@ def rewrite_apply_patch_shell_command(cmd):
 
 
 def rewrite_shell_write_command(cmd):
-    return rewrite_cat_heredoc(cmd) or rewrite_echo_redirect(cmd) or rewrite_touch(cmd)
+    return (
+        rewrite_cat_heredoc(cmd)
+        or rewrite_copy_command(cmd)
+        or rewrite_echo_redirect(cmd)
+        or rewrite_touch(cmd)
+    )
 
 
 def extract_nested_exec_arguments(cmd):

@@ -42,6 +42,7 @@ from .shell_guard import (
     rewrite_apply_patch_heredoc_command,
     rewrite_apply_patch_shell_command,
     rewrite_cat_heredoc,
+    rewrite_copy_command,
     rewrite_echo_redirect,
     rewrite_shell_write_command,
     rewrite_touch,

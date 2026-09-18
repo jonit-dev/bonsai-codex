@@ -403,3 +403,33 @@ def test_still_rejects_a_redirect_into_a_source_file():
     data = json.loads(proxy.apply_exec_guard(
         "exec_command", json.dumps({"cmd": "printf 'x' > src/app.ts"}), True))
     assert "proxy rejected this edit command" in data["cmd"]
+
+
+def test_rewrites_mv_of_a_scratch_file_into_a_patch():
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".spec.ts", delete=False) as handle:
+        handle.write("import { describe, it } from 'vitest';\n")
+        scratch = handle.name
+    try:
+        arguments = proxy.apply_exec_guard(
+            "exec_command",
+            json.dumps({"cmd": f"mv {scratch} packages/core/__tests__/x.spec.ts && wc -l packages/core/__tests__/x.spec.ts"}),
+            True,
+        )
+        data = json.loads(arguments)
+        assert "proxy rejected" not in data["cmd"]
+        assert "*** Add File: packages/core/__tests__/x.spec.ts" in data["cmd"]
+        assert "+import { describe, it } from 'vitest';" in data["cmd"]
+        assert data["cmd"].endswith("wc -l packages/core/__tests__/x.spec.ts")
+    finally:
+        import os
+        os.unlink(scratch)
+
+
+def test_mv_of_an_unreadable_source_still_rejected():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "mv /nope/missing.ts packages/core/__tests__/x.spec.ts"}),
+        True,
+    )
+    assert "proxy rejected this edit command" in json.loads(arguments)["cmd"]
