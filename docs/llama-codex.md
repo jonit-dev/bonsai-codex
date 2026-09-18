@@ -1,8 +1,7 @@
 # llama-codex
 
-> **Running a local Bonsai model on one GPU?** Start with [BONSAI.md](BONSAI.md) — the
-> setup, the launcher scripts, task fixtures and the measured results live there. This
-> file documents the proxy itself.
+> This repository is also a plug-and-play setup for running **Bonsai 2 27B** locally on one
+> GPU — start at the [README](../README.md). This file documents the proxy itself.
 
 
 Use Codex normally, but route model calls to a local Ollama model.
