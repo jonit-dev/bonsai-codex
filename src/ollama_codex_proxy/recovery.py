@@ -91,6 +91,11 @@ def require_update_patch_after_prior_patch(arguments):
         return arguments
     if "*** Update File:" in cmd and "llama-codex apply_patch compatibility" not in cmd:
         return arguments
+    if "*** Delete File:" in cmd:
+        # An explicit replace. This model writes valid full-file rewrites far more reliably than
+        # Update hunks, and the proxy runs delete and add as separate invocations; rejecting the
+        # add half here is what left files deleted with nothing written back.
+        return arguments
     message = (
         "llama-codex proxy rejected full rewrite after a prior patch: "
         "the workspace already has implementation changes; use a targeted *** Update File patch against the current file."

@@ -110,7 +110,6 @@ def test_requires_update_patch_after_prior_patch_output():
                         "cmd": (
                             "apply_patch <<'PATCH'\n"
                             "*** Begin Patch\n"
-                            "*** Delete File: a.txt\n"
                             "*** Add File: a.txt\n"
                             "+new\n"
                             "*** End Patch\n"
@@ -243,3 +242,16 @@ if __name__ == "__main__":
     test_force_patch_first_rejects_missing_tool_message()
     test_recovery_allows_non_target_command_without_force_policy()
     print('recovery tests passed')
+
+
+def test_explicit_replace_is_allowed_after_a_prior_patch():
+    # The anti-full-rewrite guard rejected the add half of a delete+add replace, which left the
+    # file deleted with nothing written back - observed on the web-app fixture.
+    replace = "apply_patch <<'PATCH'\n*** Begin Patch\n*** Delete File: app.py\n*** End Patch\nPATCH"
+    out = proxy.require_update_patch_after_prior_patch(json.dumps({"cmd": replace}))
+    assert "proxy rejected" not in out
+    assert "*** Delete File: app.py" in json.loads(out)["cmd"]
+
+    bare_add = "apply_patch <<'PATCH'\n*** Begin Patch\n*** Add File: app.py\n+x\n*** End Patch\nPATCH"
+    out = proxy.require_update_patch_after_prior_patch(json.dumps({"cmd": bare_add}))
+    assert "proxy rejected full rewrite" in json.loads(out)["cmd"]
