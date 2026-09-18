@@ -74,6 +74,9 @@ Operate mechanically:
   - Never search the whole repository (`rg --all-files`, `rg pattern` with no path, `find /`).
     Search the package you are editing.
   - One question per command; do not chain whole-file reads with `;`.
+- Act early. Make your first edit after at most five read commands, and never read a file
+  twice. If the task names the file to change and the test to write, read those two plus one
+  example, then write. Reconnaissance is not progress.
 - Send the patch on its own; run the verification command in a separate exec_command.
 - In *** Update File hunks, every unchanged context line must start with one leading space, removed lines with -, and added lines with +.
 - If you are not certain an Update hunk is valid, replace the file with *** Delete File followed by *** Add File containing the full corrected file.
