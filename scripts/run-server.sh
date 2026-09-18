@@ -25,6 +25,18 @@ REASONING_BUDGET="${REASONING_BUDGET:-1024}"
 [ -x "$FORK/build/bin/llama-server" ] || { echo "no llama-server at $FORK/build/bin" >&2; exit 1; }
 [ -f "$MODEL" ] || { echo "no model at $MODEL" >&2; exit 1; }
 
+# llama.cpp's own bind error arrives as "couldn't bind HTTP server socket" after the model
+# header is parsed, which reads like a model problem. Say what actually holds the port, and
+# how to move: PORT=8081 scripts/run-server.sh.
+if command -v ss >/dev/null 2>&1; then
+  holder="$(ss -ltnp 2>/dev/null | awk -v port=":$PORT" '$4 ~ port"$" {print $6; exit}')"
+  if [ -n "$holder" ]; then
+    echo "port $PORT is already in use ($holder)" >&2
+    echo "pick another one:  PORT=8081 $0" >&2
+    exit 1
+  fi
+fi
+
 exec "$FORK/build/bin/llama-server" \
   -m "$MODEL" \
   -ngl 99 \

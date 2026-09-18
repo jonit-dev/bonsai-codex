@@ -50,6 +50,17 @@ else
 fi
 
 echo
+echo "port"
+if command -v ss >/dev/null 2>&1; then
+  holder="$(ss -ltnp 2>/dev/null | awk '$4 ~ /:8080$/ {print $6; exit}')"
+  if [ -n "$holder" ]; then
+    printf '  note    :8080 is taken (%s) - start the server with PORT=8081 and pass PORT=8081 to run-task.sh\n' "$holder"
+  else
+    ok ":8080 free"
+  fi
+fi
+
+echo
 if [ "$missing" -eq 0 ]; then
   cat <<'NEXT'
 all set. run:
