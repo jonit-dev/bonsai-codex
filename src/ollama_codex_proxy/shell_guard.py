@@ -24,16 +24,65 @@ def unquote_shell_word(value):
     return parts[0]
 
 
+FORBIDDEN_SHELL_WRITE = re.compile(
+    r"(^|[;&|]\s*)touch\b|"
+    r"(^|[;&|]\s*)mkdir\s+|"
+    r"(^|[;&|]\s*)mv\s+|"
+    r"(^|[;&|]\s*)cp\s+|"
+    r"(^|[;&|]\s*)rm\s+|"
+    r"(^|[;&|]\s*)unlink\s+|"
+    r"\bcat\s*>|"
+    r"\bcat\s*<<|"
+    r"\btee\s+|"
+    r"\bsed\s+-i\b|"
+    r"\bperl\s+-i\b|"
+    r">\s*[\w./~-]+|"
+    r"\bpython3?\b.*\b(open|write_text)\s*\(",
+    re.DOTALL,
+)
+
+
+FORBIDDEN_TAIL_MESSAGE = (
+    "llama-codex proxy rejected commands chained after a patch heredoc that write files; "
+    "send the patch alone, then run the verification command separately."
+)
+
+
+def rejected_edit_command(cmd, message):
+    rejected = f"llama-codex proxy rejected edit command: {cmd}"
+    return (
+        "printf '%s\\n' "
+        f"{shlex.quote(message)} "
+        f"{shlex.quote(rejected)} "
+        ">&2; exit 2"
+    )
+
+
+def with_trailing_commands(command, tail):
+    """Keep the commands a model chained after a heredoc, or reject a forbidden tail.
+
+    `cat > f <<'EOF' ... EOF; cat f` is one command with a verification step attached.
+    Dropping the tail silently would hide the write's own smoke test from the model;
+    returning None means the tail writes files, so the caller rejects the whole command.
+    """
+    tail = tail.strip()
+    if not tail:
+        return command
+    if FORBIDDEN_SHELL_WRITE.search(tail):
+        return None
+    return f"{command}\n{tail}"
+
+
 def rewrite_cat_heredoc(cmd):
     path_first = (
         r"\s*cat\s*>\s*(?P<path>(?:'[^']+'|\"[^\"]+\"|[^\s]+))"
         r"\s*<<\s*(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_-]*)\2"
-        r"\s*\n(?P<body>.*)\n(?P=delimiter)\s*;?\s*$"
+        r"\s*\n(?P<body>.*)\n(?P=delimiter)\s*;?\s*(?P<tail>[\s\S]*)$"
     )
     heredoc_first = (
         r"\s*cat\s*<<\s*(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_-]*)\1"
         r"\s*>\s*(?P<path>(?:'[^']+'|\"[^\"]+\"|[^\s]+))"
-        r"\s*\n(?P<body>.*)\n(?P=delimiter)\s*;?\s*$"
+        r"\s*\n(?P<body>.*)\n(?P=delimiter)\s*;?\s*(?P<tail>[\s\S]*)$"
     )
     match = re.match(path_first, cmd, re.DOTALL) or re.match(heredoc_first, cmd, re.DOTALL)
     if not match:
@@ -41,7 +90,10 @@ def rewrite_cat_heredoc(cmd):
     path = unquote_shell_word(match.group("path"))
     if not path:
         return None
-    return conditional_apply_patch_command(path, match.group("body"))
+    command = conditional_apply_patch_command(path, match.group("body"))
+    if command is None:
+        return None
+    return with_trailing_commands(command, match.group("tail"))
 
 
 def rewrite_touch(cmd):
@@ -128,14 +180,17 @@ def rewrite_apply_patch_heredoc_command(cmd):
     except ValueError:
         return None
     body_lines = lines[:first_delimiter_index]
+    trailing = "\n".join(lines[first_delimiter_index + 1:])
     if any(line.strip() == "*** End Patch" for line in body_lines):
         body = "\n".join(body_lines)
         repaired = repair_wrapped_unified_diff(body)
         if repaired != body:
-            return apply_patch_compat_command(repaired)
+            rewritten = with_trailing_commands(apply_patch_compat_command(repaired), trailing)
+            return rewritten or rejected_edit_command(cmd, FORBIDDEN_TAIL_MESSAGE)
         repaired = repair_add_file_content_lines(body)
         if repaired != body:
-            return apply_patch_command(repaired)
+            rewritten = with_trailing_commands(apply_patch_command(repaired), trailing)
+            return rewritten or rejected_edit_command(cmd, FORBIDDEN_TAIL_MESSAGE)
         return None
     tail_lines = lines[first_delimiter_index + 1:]
     for tail_index, line in enumerate(tail_lines):
@@ -230,19 +285,7 @@ def apply_exec_guard(name, arguments, reject_shell_writes):
         data["cmd"] = rewritten
         return json.dumps(data)
 
-    forbidden = re.compile(
-        r"(^|[;&|]\s*)touch\b|"
-        r"(^|[;&|]\s*)rm\s+|"
-        r"(^|[;&|]\s*)unlink\s+|"
-        r"\bcat\s*>|"
-        r"\bcat\s*<<|"
-        r"\btee\s+|"
-        r"\bsed\s+-i\b|"
-        r"\bperl\s+-i\b|"
-        r">\s*[\w./~-]+|"
-        r"\bpython3?\b.*\b(open|write_text)\s*\(",
-        re.DOTALL,
-    )
+    forbidden = FORBIDDEN_SHELL_WRITE
     if not forbidden.search(cmd):
         if changed:
             return json.dumps(data)

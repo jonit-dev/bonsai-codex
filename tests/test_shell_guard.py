@@ -275,22 +275,50 @@ def test_non_target_exec_command_passes_through():
     assert proxy.apply_exec_guard("exec_command", original, True) == original
 
 
+
+
+
+def test_rewrites_cat_heredoc_with_trailing_verification_command():
+    # The shape that stalled the Bonsai run: the model writes the file and chains its
+    # own `cat` to check the result. Anchoring the heredoc at end-of-string rejected
+    # the whole command, including a complete, correct 1000-token file body.
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "cat > api.py <<'PATCH'\nimport json\nPATCH\ncat api.py"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "*** Add File: api.py" in data["cmd"]
+    assert "+import json" in data["cmd"]
+    assert "cat >" not in data["cmd"]
+    assert data["cmd"].endswith("cat api.py")
+
+
+def test_rejects_cat_heredoc_with_trailing_write_command():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "cat > api.py <<'PATCH'\nimport json\nPATCH\nrm -rf src"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "proxy rejected this edit command" in data["cmd"]
+    assert "*** Add File: api.py" not in data["cmd"]
+
+
+def test_keeps_trailing_command_after_repaired_apply_patch_heredoc():
+    patch = "*** Begin Patch\n*** Add File: api.py\n+import json\n*** End Patch"
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": f"apply_patch <<'PATCH'\n{patch}\nPATCH\npython3 -m unittest discover -s tests"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "*** Add File: api.py" in data["cmd"]
+    assert data["cmd"].endswith("python3 -m unittest discover -s tests")
+
+
 if __name__ == "__main__":
-    test_rewrites_touch_to_apply_patch()
-    test_rewritten_touch_rejects_top_level_module_shadowing_package()
-    test_rewrites_cat_heredoc_to_apply_patch()
-    test_rewrites_cat_heredoc_with_redirect_after_delimiter()
-    test_rejected_shell_write_reports_original_command()
-    test_rewrites_echo_redirect_to_apply_patch()
-    test_rejects_rm_source_edit_command()
-    test_unwraps_nested_exec_command_shell_text()
-    test_unwrapped_nested_exec_still_applies_shell_write_guard()
-    test_rewrites_apply_patch_file_patch_flags_when_payload_is_real_patch()
-    test_rejects_apply_patch_file_patch_flags_with_non_patch_payload()
-    test_rejects_malformed_apply_patch_shell_command_with_guidance()
-    test_repairs_apply_patch_heredoc_closed_before_end_patch()
-    test_rewrites_wrapped_unified_diff_heredoc_to_compat_command()
-    test_repairs_complete_apply_patch_heredoc_missing_add_prefixes()
-    test_repairs_apply_patch_heredoc_missing_end_marker()
-    test_non_target_exec_command_passes_through()
+    for name, check in sorted(globals().items()):
+        if name.startswith("test_") and callable(check):
+            check()
     print('shell guard tests passed')
