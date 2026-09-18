@@ -1,5 +1,10 @@
 # llama-codex
 
+> **Running a local Bonsai model on one GPU?** Start with [BONSAI.md](BONSAI.md) — the
+> setup, the launcher scripts, task fixtures and the measured results live there. This
+> file documents the proxy itself.
+
+
 Use Codex normally, but route model calls to a local Ollama model.
 
 Day to day, run it exactly like `codex`:
