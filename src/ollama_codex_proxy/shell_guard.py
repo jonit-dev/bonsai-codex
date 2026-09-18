@@ -390,6 +390,33 @@ def extract_nested_exec_arguments(cmd):
     return data
 
 
+HEREDOC_START = re.compile(
+    r"<<-?\s*(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_-]*)(?P=quote)"
+)
+
+
+def shell_without_heredoc_bodies(cmd):
+    """The shell commands in cmd, with every heredoc body removed.
+
+    A heredoc body is data, not shell. `<!DOCTYPE html>` and '<li><strong>Note' inside a patch
+    matched the redirect rule and got whole edits rejected, whatever delimiter the model chose.
+    """
+    lines = cmd.splitlines()
+    kept, index = [], 0
+    while index < len(lines):
+        line = lines[index]
+        kept.append(line)
+        index += 1
+        for match in HEREDOC_START.finditer(line):
+            delimiter = match.group("delimiter")
+            while index < len(lines) and lines[index].strip() != delimiter:
+                index += 1
+            if index < len(lines):
+                kept.append(lines[index])
+                index += 1
+    return "\n".join(kept)
+
+
 def apply_exec_guard(name, arguments, reject_shell_writes):
     if not reject_shell_writes or not name:
         return arguments
@@ -436,7 +463,7 @@ def apply_exec_guard(name, arguments, reject_shell_writes):
         data["cmd"] = rewritten
         return json.dumps(data)
     forbidden = FORBIDDEN_SHELL_WRITE
-    if not forbidden.search(cmd):
+    if not forbidden.search(shell_without_heredoc_bodies(cmd)):
         if changed:
             return json.dumps(data)
         return arguments

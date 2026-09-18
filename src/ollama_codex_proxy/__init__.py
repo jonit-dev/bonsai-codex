@@ -49,6 +49,7 @@ from .shell_guard import (
     rewrite_echo_redirect,
     rewrite_shell_write_command,
     rewrite_touch,
+    shell_without_heredoc_bodies,
     unquote_shell_word,
 )
 from .streaming import responses_sse, sse_event

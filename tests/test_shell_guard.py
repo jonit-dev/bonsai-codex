@@ -509,3 +509,32 @@ def test_multiple_add_files_run_as_separate_invocations():
         "exec_command", json.dumps({"cmd": f"apply_patch <<'PATCH'\n{patch}\nPATCH"}), True))["cmd"]
     assert out.count("apply_patch <<") == 2
     assert "*** Add File: a.py" in out and "*** Add File: b.py" in out
+
+
+def test_patch_body_is_not_scanned_as_shell():
+    # A hand-written conditional wrapper around a patch: the body carries HTML, and the
+    # redirect rule read '<strong>Note' as '>Note' and rejected the edit.
+    cmd = (
+        "cd /tmp/demo && if [ -e app.py ]; then\n"
+        "apply_patch <<'PATCH_FINAL'\n"
+        "*** Begin Patch\n"
+        "*** Delete File: app.py\n"
+        "*** End Patch\n"
+        "PATCH_FINAL\n"
+        "apply_patch <<'PATCH_FINAL'\n"
+        "*** Begin Patch\n"
+        "*** Add File: app.py\n"
+        "+rows = ['<li><strong>Note %d:</strong>' % 1]\n"
+        "*** End Patch\n"
+        "PATCH_FINAL\n"
+        "fi"
+    )
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert "proxy rejected" not in out
+    assert "<li><strong>Note" in out
+
+
+def test_real_write_outside_a_heredoc_body_is_still_caught():
+    cmd = "cat > notes.txt <<'EOF'\nnotes\nEOF\nrm -rf src"
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert "proxy rejected this edit command" in out
