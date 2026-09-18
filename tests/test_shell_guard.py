@@ -565,3 +565,19 @@ def test_replace_without_a_closing_marker_still_splits():
     assert out.count("apply_patch <<") == 2
     assert out.index("*** Delete File: app.py") < out.index("*** Add File: app.py")
     assert "cd /tmp/demo &&" in out
+
+
+def test_delete_only_patch_is_rejected():
+    # The model repeatedly deleted the file it had just written and re-added it a turn later,
+    # leaving the tests erroring on import in between.
+    cmd = "apply_patch <<'P'\n*** Begin Patch\n*** Delete File: app.py\n*** End Patch\nP"
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert "rejected a delete-only patch" in out
+
+
+def test_delete_and_add_replace_is_allowed():
+    cmd = ("apply_patch <<'P'\n*** Begin Patch\n*** Delete File: app.py\n*** Add File: app.py\n"
+           "+import json\n*** End Patch\nP")
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert "rejected" not in out
+    assert out.count("apply_patch <<") == 2
