@@ -26,7 +26,7 @@ has_runtime_fixes() {
 }
 
 has_runtime_fixes "$LLAMA_CODEX_DIR" || {
-  echo "$LLAMA_CODEX_DIR lacks the runtime fixes (see BONSAI.md); unset LLAMA_CODEX_DIR to use this checkout" >&2
+  echo "$LLAMA_CODEX_DIR lacks the runtime fixes (see README.md); unset LLAMA_CODEX_DIR to use this checkout" >&2
   exit 1
 }
 
