@@ -80,6 +80,9 @@ Operate mechanically:
 - Act early. Make your first edit after at most five read commands, and never read a file
   twice. If the task names the file to change and the test to write, read those two plus one
   example, then write. Reconnaissance is not progress.
+- Send one file per patch. A patch that creates or rewrites several files at once is larger
+  than the output budget and gets cut off mid-file, losing the whole turn. Write `models.py`,
+  then `repository.py`, then `service.py` in separate tool calls.
 - Send the patch on its own; run the verification command in a separate exec_command.
 - In *** Update File hunks, every unchanged context line must start with one leading space, removed lines with -, and added lines with +.
 - If you are not certain an Update hunk is valid, replace the file with *** Delete File followed by *** Add File containing the full corrected file.
