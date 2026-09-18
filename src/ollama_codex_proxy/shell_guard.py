@@ -74,13 +74,18 @@ def with_trailing_commands(command, tail):
 
 
 def rewrite_cat_heredoc(cmd):
+    # The write does not have to start the command: models prefix it with `cd <dir> &&`,
+    # a bare `cd <dir>` line, or a `;`. Anchor on the heredoc itself and keep the prefix,
+    # so `cd x\ncat > f <<'EOF' ... EOF` rewrites like the bare form. Without this the
+    # command falls through to the shell-write scan and the edit is rejected.
+    prefix = r"(?P<prefix>[\s\S]*?)"
     path_first = (
-        r"\s*cat\s*>\s*(?P<path>(?:'[^']+'|\"[^\"]+\"|[^\s]+))"
-        r"\s*<<\s*(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_-]*)\2"
+        prefix + r"cat\s*>\s*(?P<path>(?:'[^']+'|\"[^\"]+\"|[^\s]+))"
+        r"\s*<<\s*(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_-]*)(?P=quote)"
         r"\s*\n(?P<body>.*)\n(?P=delimiter)\s*;?\s*(?P<tail>[\s\S]*)$"
     )
     heredoc_first = (
-        r"\s*cat\s*<<\s*(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_-]*)\1"
+        prefix + r"cat\s*<<\s*(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_-]*)(?P=quote)"
         r"\s*>\s*(?P<path>(?:'[^']+'|\"[^\"]+\"|[^\s]+))"
         r"\s*\n(?P<body>.*)\n(?P=delimiter)\s*;?\s*(?P<tail>[\s\S]*)$"
     )
@@ -90,10 +95,14 @@ def rewrite_cat_heredoc(cmd):
     path = unquote_shell_word(match.group("path"))
     if not path:
         return None
+    leading = match.group("prefix")
+    if FORBIDDEN_SHELL_WRITE.search(leading):
+        return None
     command = conditional_apply_patch_command(path, match.group("body"))
     if command is None:
         return None
-    return with_trailing_commands(command, match.group("tail"))
+    rewritten = with_trailing_commands(command, match.group("tail"))
+    return None if rewritten is None else leading + rewritten
 
 
 def rewrite_touch(cmd):

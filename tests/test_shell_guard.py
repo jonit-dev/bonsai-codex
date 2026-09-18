@@ -365,3 +365,25 @@ def test_cd_prefix_patch_is_repaired_and_prefix_kept():
     data = json.loads(arguments)
     assert data["cmd"].startswith("cd /tmp/demo && apply_patch <<'")
     assert "*** Begin Patch" in data["cmd"]
+
+
+def test_rewrites_cat_heredoc_after_a_leading_cd_line():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "cd /tmp/demo\ncat > app.py <<'PYEOF'\nimport json\nPYEOF"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "proxy rejected" not in data["cmd"]
+    assert data["cmd"].startswith("cd /tmp/demo\n")
+    assert "*** Add File: app.py" in data["cmd"]
+
+
+def test_forbidden_prefix_still_rejects_the_rewritten_heredoc():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "rm -rf src && cat > app.py <<'PYEOF'\nimport json\nPYEOF"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "proxy rejected this edit command" in data["cmd"]
