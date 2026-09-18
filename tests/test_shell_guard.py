@@ -581,3 +581,15 @@ def test_delete_and_add_replace_is_allowed():
     out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
     assert "rejected" not in out
     assert out.count("apply_patch <<") == 2
+
+
+def test_cat_to_devnull_is_not_an_edit():
+    cmd = "cd /tmp/demo && cat > /dev/null <<'EOF'\nstuff\nEOF"
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert "rejected" not in out
+
+
+def test_cat_to_a_file_is_still_rewritten_to_a_patch():
+    out = json.loads(proxy.apply_exec_guard(
+        "exec_command", json.dumps({"cmd": "cat > src/app.ts <<'EOF'\nx\nEOF"}), True))["cmd"]
+    assert "*** Add File: src/app.ts" in out

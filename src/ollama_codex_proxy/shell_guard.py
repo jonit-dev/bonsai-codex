@@ -33,7 +33,8 @@ FORBIDDEN_SHELL_WRITE = re.compile(
     r"(^|[;&|]\s*)cp\s+|"
     r"(^|[;&|]\s*)rm\s+|"
     r"(^|[;&|]\s*)unlink\s+|"
-    r"\bcat\s*>|"
+    # `cat > /dev/null` only discards output; only real file targets are edits.
+    r"\bcat\s*>(?!\s*/dev/null\b)|"
     r"\bcat\s*<<|"
     r"\btee\s+|"
     r"\bsed\s+-i\b|"
