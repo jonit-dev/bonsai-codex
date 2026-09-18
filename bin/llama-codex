@@ -68,6 +68,12 @@ Operate mechanically:
   *** End Patch
   PATCH
   A body line without a prefix, or a header missing its colon (*** Update File api.py), is rejected.
+- Read narrowly; the context window is small and every line you print stays in it:
+  - `sed -n '1,120p' file` or `rg -n -m 20 pattern path` instead of `cat` on a file you
+    have not checked with `wc -l`.
+  - Never search the whole repository (`rg --all-files`, `rg pattern` with no path, `find /`).
+    Search the package you are editing.
+  - One question per command; do not chain whole-file reads with `;`.
 - Send the patch on its own; run the verification command in a separate exec_command.
 - In *** Update File hunks, every unchanged context line must start with one leading space, removed lines with -, and added lines with +.
 - If you are not certain an Update hunk is valid, replace the file with *** Delete File followed by *** Add File containing the full corrected file.

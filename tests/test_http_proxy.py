@@ -96,9 +96,31 @@ def test_should_forward_non_responses_post_with_json_body():
     assert handler.forward_kwargs == {}
 
 
+def test_should_trim_oversized_tool_output_before_forwarding():
+    long_output = "x" * 5000
+    payload = {
+        "input": [
+            {"type": "function_call_output", "call_id": "c1", "output": long_output},
+            {"type": "function_call_output", "call_id": "c2", "output": "short"},
+        ]
+    }
+    trimmed = proxy.trim_tool_outputs(payload, 100)
+    first, second = trimmed["input"]
+    assert first["output"].startswith("x" * 100)
+    assert "4900 characters elided" in first["output"]
+    assert second["output"] == "short"
+
+
+def test_should_leave_short_tool_output_untouched():
+    payload = {"input": [{"type": "function_call_output", "call_id": "c1", "output": "ok"}]}
+    assert proxy.trim_tool_outputs(payload, 100)["input"][0]["output"] == "ok"
+
+
 if __name__ == "__main__":
     test_should_import_proxy_handler_from_facade_when_script_module_loaded()
     test_should_show_help_when_cli_invoked()
     test_should_prepare_responses_payload_without_streaming_upstream()
     test_should_forward_non_responses_post_with_json_body()
+    test_should_trim_oversized_tool_output_before_forwarding()
+    test_should_leave_short_tool_output_untouched()
     print("http proxy tests passed")

@@ -36,7 +36,9 @@ FORBIDDEN_SHELL_WRITE = re.compile(
     r"\btee\s+|"
     r"\bsed\s+-i\b|"
     r"\bperl\s+-i\b|"
-    r">\s*[\w./~-]+|"
+    # A file redirect, but not to /dev/null: `cmd 2>/dev/null` and `cmd >/dev/null` are
+    # ordinary plumbing, and every read that used them was being rejected as a write.
+    r">\s*(?!/dev/null\b)[\w./~-]+|"
     r"\bpython3?\b.*(\bopen\s*\([^)]*,\s*['\"][wax]|\bopen\s*\([^)]*,\s*mode\s*=\s*['\"][wax]|\bwrite_text\s*\(|\bwrite_bytes\s*\()",
     re.DOTALL,
 )

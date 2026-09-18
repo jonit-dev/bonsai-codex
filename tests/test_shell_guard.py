@@ -387,3 +387,19 @@ def test_forbidden_prefix_still_rejects_the_rewritten_heredoc():
     )
     data = json.loads(arguments)
     assert "proxy rejected this edit command" in data["cmd"]
+
+
+def test_allows_reads_that_redirect_stderr_to_devnull():
+    for cmd in (
+        'cat vitest.config.ts 2>/dev/null || ls | grep -i vitest',
+        'rg -n "environment" vitest.config.* 2>/dev/null; head -80 specs/net.spec.ts',
+        'cat packages/core/package.json >/dev/null',
+    ):
+        data = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))
+        assert "rejected" not in data["cmd"], cmd
+
+
+def test_still_rejects_a_redirect_into_a_source_file():
+    data = json.loads(proxy.apply_exec_guard(
+        "exec_command", json.dumps({"cmd": "printf 'x' > src/app.ts"}), True))
+    assert "proxy rejected this edit command" in data["cmd"]

@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler
 from urllib.error import HTTPError, URLError
@@ -18,6 +19,40 @@ def read_json(handler):
     if not body:
         return {}
     return json.loads(body)
+
+
+def trim_tool_outputs(payload, limit=None):
+    """Keep command output from eating the context window.
+
+    Codex appends every command's output to the transcript verbatim, so one repo-wide
+    `rg` or `cat` of a 900-line spec costs more than the task itself: measured on a real
+    codebase, a single spec-writing task grew 6.9k -> 90k input tokens in six turns. Keep
+    the head of each output and say what was elided, so the model re-reads a narrower
+    range instead of the harness silently losing the tail.
+    """
+    if limit is None:
+        limit = int(os.environ.get("LLAMA_CODEX_TOOL_OUTPUT_CHARS", "3000"))
+    items = payload.get("input")
+    if limit <= 0 or not isinstance(items, list):
+        return payload
+    for item in items:
+        if not isinstance(item, dict) or item.get("type") != "function_call_output":
+            continue
+        output = item.get("output")
+        if isinstance(output, str) and len(output) > limit:
+            elided = len(output) - limit
+            item["output"] = (
+                f"{output[:limit]}\n[llama-codex proxy: {elided} characters elided; "
+                "read a narrower range (sed -n 'a,bp', rg -m 20) if you need more]"
+            )
+        elif isinstance(output, list):
+            for part in output:
+                text = part.get("text") if isinstance(part, dict) else None
+                if isinstance(text, str) and len(text) > limit:
+                    part["text"] = (
+                        f"{text[:limit]}\n[llama-codex proxy: {len(text) - limit} characters elided]"
+                    )
+    return payload
 
 
 def fold_instructions_into_leading_message(payload):
@@ -115,6 +150,7 @@ class Proxy(BaseHTTPRequestHandler):
                 payload["options"] = options
             stream_response = bool(payload.get("stream"))
             payload = fold_instructions_into_leading_message(payload)
+            payload = trim_tool_outputs(payload)
             force_patch_first = (
                 payload_requests_force_patch_first(payload)
                 and not payload_contains_successful_patch_output(payload)
