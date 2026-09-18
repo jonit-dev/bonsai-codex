@@ -390,6 +390,18 @@ wait_for_url() {
   return 1
 }
 
+backend_already_serving() {
+  # Ollama answers /api/version; llama.cpp, LM Studio and vLLM serve the OpenAI surface
+  # instead. Either way, something is listening and ready to take requests.
+  curl -fsS "${ollama_url}/v1/models" >/dev/null 2>&1
+}
+
+using_external_backend() {
+  # Backend answers the OpenAI surface but not Ollama's /api routes: the model is
+  # whatever that server already has loaded, so there is nothing to install or alias.
+  ! curl -fsS "${ollama_url}/api/version" >/dev/null 2>&1 && backend_already_serving
+}
+
 proxy_model() {
   curl -fsS "${proxy_url}/api/tags" 2>/dev/null \
     | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data["models"][0].get("model") or data["models"][0].get("name") or "")' 2>/dev/null \
@@ -466,6 +478,10 @@ EOF
 }
 
 ensure_model_available() {
+  if using_external_backend; then
+    return 0
+  fi
+
   if model_installed; then
     return 0
   fi
@@ -480,6 +496,10 @@ ensure_model_available() {
 
 start_ollama() {
   if curl -fsS "${ollama_url}/api/version" >/dev/null 2>&1; then
+    return 0
+  fi
+  if backend_already_serving; then
+    echo "llama-codex: using the server already running at ${ollama_url}" >&2
     return 0
   fi
   OLLAMA_NUM_PARALLEL="${ollama_num_parallel}" \
@@ -1097,7 +1117,9 @@ fi
 
 require_cmd curl
 require_cmd python3
-require_cmd ollama
+if ! using_external_backend; then
+  require_cmd ollama
+fi
 require_cmd codex
 
 if ! start_ollama; then
