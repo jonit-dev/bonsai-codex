@@ -245,6 +245,37 @@ def split_patch_sections(body_lines):
     return ["\n".join(section) for section in sections if any(line.strip() for line in section)]
 
 
+OPERATION_LINE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File:\s*(?P<path>.+?)\s*$")
+
+
+def split_patch_operations(patch_text):
+    """One apply_patch invocation per file operation.
+
+    apply_patch refuses a patch carrying two operations for the same path ("multiple
+    operations target <path>"), and a delete-then-add rewrite is exactly that. Models write
+    it either as two sections or as two operations in one section; splitting on the
+    operation headers covers both, and keeps each call independent.
+    """
+    lines = patch_text.splitlines()
+    header, footer = "*** Begin Patch", "*** End Patch"
+    operations, current = [], None
+    for line in lines:
+        if line.strip() in (header, footer):
+            continue
+        if OPERATION_LINE.match(line):
+            if current is not None:
+                operations.append(current)
+            current = [line]
+            continue
+        if current is not None:
+            current.append(line)
+    if current is not None:
+        operations.append(current)
+    if len(operations) < 2:
+        return []
+    return ["\n".join([header, *operation, footer]) for operation in operations]
+
+
 def complete_patch(text):
     lines = text.splitlines()
     if not any(line.strip() == "*** Begin Patch" for line in lines):
@@ -271,6 +302,11 @@ def rewrite_apply_patch_heredoc_command(cmd):
     body_lines = lines[:first_delimiter_index]
     trailing = "\n".join(lines[first_delimiter_index + 1:])
     if any(line.strip() == "*** End Patch" for line in body_lines):
+        split = split_patch_operations("\n".join(body_lines))
+        if split:
+            commands = [apply_patch_command(repair_add_file_content_lines(part)) for part in split]
+            rewritten = with_trailing_commands("\n".join(commands), trailing)
+            return rewritten or rejected_edit_command(cmd, FORBIDDEN_TAIL_MESSAGE)
         sections = split_patch_sections(body_lines)
         if len(sections) > 1:
             commands = []

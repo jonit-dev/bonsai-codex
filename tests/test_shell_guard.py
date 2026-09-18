@@ -482,3 +482,30 @@ def test_generated_block_survives_a_second_guard_pass():
 
     second = proxy.apply_exec_guard("exec_command", first, True)
     assert second == first, "second pass changed or rejected the generated block"
+
+
+def test_splits_delete_and_add_of_one_path_written_in_one_section():
+    # Codex's apply_patch refuses two operations on one path, so a model that follows the
+    # prompt and writes Delete + Add in a single section had the patch rejected and the file
+    # deleted with nothing added back.
+    cmd = (
+        "apply_patch <<'PATCH'\n"
+        "*** Begin Patch\n"
+        "*** Delete File: app.py\n"
+        "*** Add File: app.py\n"
+        "+import json\n"
+        "*** End Patch\n"
+        "PATCH"
+    )
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert out.count("apply_patch <<") == 2
+    assert out.index("*** Delete File: app.py") < out.index("*** Add File: app.py")
+    assert "+import json" in out
+
+
+def test_multiple_add_files_run_as_separate_invocations():
+    patch = "*** Begin Patch\n*** Add File: a.py\n+a\n*** Add File: b.py\n+b\n*** End Patch"
+    out = json.loads(proxy.apply_exec_guard(
+        "exec_command", json.dumps({"cmd": f"apply_patch <<'PATCH'\n{patch}\nPATCH"}), True))["cmd"]
+    assert out.count("apply_patch <<") == 2
+    assert "*** Add File: a.py" in out and "*** Add File: b.py" in out
