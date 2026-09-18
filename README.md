@@ -116,6 +116,55 @@ scripts/run-codex.sh /path/to/project "Implement create_app() so the tests pass.
 without them; it also replaces any proxy already on the port, because llama-codex happily
 reuses a running proxy and will then serve code from a checkout you are not editing.
 
+### Driving it from another machine
+
+The model does not have to run on the machine you type on. Serve it to the LAN on the box with
+the GPU, and point `run-codex.sh` at that address from anywhere else on the same network:
+
+```sh
+# on the machine with the GPU
+HOST=0.0.0.0 PORT=8080 scripts/run-server.sh
+
+# on any other machine on the same wifi (a checkout of this repo, and Codex CLI installed)
+SERVER_HOST=192.168.1.133 PORT=8080 scripts/run-codex.sh /path/to/project "Implement create_app() so the tests pass."
+```
+
+`SERVER_HOST` changes both the health probe and the backend the proxy talks to, so the whole
+chain — Codex, the proxy, llama-server — runs against the remote card. The proxy itself still
+runs locally, from this checkout; only its upstream moves.
+
+**The firewall is the part that bites.** `llama-server` binds `0.0.0.0` happily and logs
+nothing wrong, but ufw's default incoming policy is `deny`, so an outside connection is dropped
+before the server ever sees it — the client reports a timeout and the server log stays clean,
+which reads like a model problem. On the machine with the GPU:
+
+```sh
+sudo ufw allow from 192.168.1.0/24 to any port 8080 proto tcp
+```
+
+Verified by probing from a network namespace whose source address sits in `192.168.1.0/24`:
+with the rule the port answers `200`, without it the same probe times out, and a source outside
+the allowed subnet still times out. Docker-published ports answer without any rule because
+Docker writes its own `nat`/`FORWARD` rules that bypass ufw's input chain — do not read
+"another service on this host is reachable" as evidence that this one will be.
+
+**There is no authentication on either hop.** `llama-server` serves an unauthenticated,
+tool-calling model with CORS open to all origins, and the proxy is plain HTTP. Anyone who can
+reach the port can use the GPU and run inference on your card. Keep the allow rule as narrow as
+you can (a `/24`, or a single address with `/32`) and do not expose either port to the internet.
+For a tighter setup, bind to a Tailscale/WireGuard address instead of `0.0.0.0` and skip the
+LAN rule entirely — `HOST=100.x.y.z scripts/run-server.sh` with `SERVER_HOST=100.x.y.z` on the
+client gives an encrypted, authenticated path with no open port on the wifi.
+
+Two more things worth knowing when the two machines are separate:
+
+- **The context window is set on both sides.** `LLAMA_CODEX_CONTEXT_WINDOW` (24576) must match
+  the server's `-c`; a mismatch makes the proxy budget requests against a window the server
+  does not have.
+- **Turn latency is decode-bound at ~20-26 t/s** and is unchanged by the network — but a wifi
+  drop mid-generation loses the turn, because the proxy holds one long-lived HTTP request to
+  the server. Prefer ethernet or a stable 5 GHz link for long runs.
+
 ### Run a task end to end
 
 ```sh
@@ -127,7 +176,9 @@ Each run copies the fixture into `~/.local/state/bonsai-codex/runs/<name>`, driv
 prints the per-turn timing report for the session log, runs the fixture's tests, then appends
 a row to `~/.local/state/bonsai-codex/results.tsv`
 (`timestamp`, `task`, `wall`, `pass|fail`, `session log`) so runs stay comparable.
-`STATE_DIR`, `RUNS_DIR` and `LEDGER` override the locations.
+`STATE_DIR`, `RUNS_DIR` and `LEDGER` override the locations. `run-codex.sh` takes
+`SERVER_HOST` (default `127.0.0.1`) and `PORT` to reach a llama-server on another machine — see
+"Driving it from another machine" above.
 
 Inspect any run afterwards:
 

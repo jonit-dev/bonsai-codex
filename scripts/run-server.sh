@@ -14,16 +14,30 @@
 # --reasoning-budget closes the thinking block once the budget is spent. Without it this
 # model can spend a whole max_output_tokens budget reasoning and emit no tool call at all,
 # which Codex reports as an empty turn; 1024 leaves room for a large file write.
+#
+# HOST=0.0.0.0 serves the LAN so a second machine can drive this card (see "Driving it from
+# another machine"). llama-server has no authentication, so the firewall is the only thing
+# keeping the rest of the wifi off it; loopback stays the default.
 set -euo pipefail
 
 FORK="${FORK:-$HOME/projects/bonsai2-cuda/fork}"
 MODEL="${MODEL:-$HOME/projects/bonsai2-cuda/models/Ternary-Bonsai-2-27B-PTQ1_0.gguf}"
+HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8080}"
 CONTEXT="${CONTEXT:-24576}"
 REASONING_BUDGET="${REASONING_BUDGET:-1024}"
 
 [ -x "$FORK/build/bin/llama-server" ] || { echo "no llama-server at $FORK/build/bin" >&2; exit 1; }
 [ -f "$MODEL" ] || { echo "no model at $MODEL" >&2; exit 1; }
+
+# Binding beyond loopback needs a firewall hole too: ufw's incoming policy is deny, so it
+# drops the connection before llama-server sees it, and the client reads that as a timeout
+# with nothing in the server log. Say so here rather than let it look like a model problem.
+if [ "$HOST" != "127.0.0.1" ] && [ "$HOST" != "localhost" ]; then
+  echo "binding $HOST:$PORT - clients on other machines also need, run here:" >&2
+  echo "  sudo ufw allow from <your-subnet>/24 to any port $PORT proto tcp" >&2
+  systemctl is-active --quiet ufw && echo "  (ufw is active and its default incoming policy is deny)" >&2
+fi
 
 # llama.cpp's own bind error arrives as "couldn't bind HTTP server socket" after the model
 # header is parsed, which reads like a model problem. Say what actually holds the port, and
@@ -47,4 +61,4 @@ exec "$FORK/build/bin/llama-server" \
   -fa on \
   --jinja \
   --reasoning-budget "$REASONING_BUDGET" \
-  --host 127.0.0.1 --port "$PORT"
+  --host "$HOST" --port "$PORT"

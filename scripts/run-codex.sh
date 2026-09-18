@@ -8,6 +8,9 @@ set -euo pipefail
 
 PORT="${PORT:-8080}"
 PROXY_PORT="${PROXY_PORT:-11435}"
+# The address this script reaches llama-server on. Point it at the machine with the GPU to run
+# Codex here and the model there; see "Driving it from another machine" in README.md.
+SERVER_HOST="${SERVER_HOST:-127.0.0.1}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PROJECT="${1:?usage: run-codex.sh <project-dir> \"<task>\"}"
@@ -30,8 +33,8 @@ has_runtime_fixes "$LLAMA_CODEX_DIR" || {
   exit 1
 }
 
-curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null || {
-  echo "no llama-server on :$PORT - run scripts/run-server.sh first" >&2
+curl -fsS "http://$SERVER_HOST:$PORT/health" >/dev/null || {
+  echo "no llama-server on http://$SERVER_HOST:$PORT - run scripts/run-server.sh first (here, or with HOST=0.0.0.0 on the machine with the GPU)" >&2
   exit 1
 }
 
@@ -57,7 +60,7 @@ export CODEX_HOME="${CODEX_HOME:-$HOME/.local/state/bonsai-codex/codex-home}"
 mkdir -p "$CODEX_HOME"
 
 # 2048 (the proxy default) truncates the thinking trace before any tool call is emitted.
-export LLAMA_CODEX_OLLAMA_URL="http://127.0.0.1:$PORT"
+export LLAMA_CODEX_OLLAMA_URL="http://$SERVER_HOST:$PORT"
 export LLAMA_CODEX_MODEL="${LLAMA_CODEX_MODEL:-bonsai}"
 export LLAMA_CODEX_CONTEXT_WINDOW="${LLAMA_CODEX_CONTEXT_WINDOW:-24576}"
 export LLAMA_CODEX_MAX_OUTPUT_TOKENS="${LLAMA_CODEX_MAX_OUTPUT_TOKENS:-12288}"
