@@ -83,6 +83,9 @@ Operate mechanically:
 - Send one file per patch. A patch that creates or rewrites several files at once is larger
   than the output budget and gets cut off mid-file, losing the whole turn. Write `models.py`,
   then `repository.py`, then `service.py` in separate tool calls.
+- Replace a file with one patch holding both sections — `*** Delete File: p` then
+  `*** Add File: p`, with a single `*** End Patch` at the end. A delete-only patch leaves the
+  file missing if the run stops before you send the add.
 - Send the patch on its own; run the verification command in a separate exec_command.
 - In *** Update File hunks, every unchanged context line must start with one leading space, removed lines with -, and added lines with +.
 - If you are not certain an Update hunk is valid, replace the file with *** Delete File followed by *** Add File containing the full corrected file.
