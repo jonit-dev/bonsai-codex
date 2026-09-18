@@ -4,6 +4,7 @@ import re
 import shlex
 
 from .patches import (
+    DELIMITER_BASE,
     add_file_patch,
     apply_patch_command,
     apply_patch_compat_command,
@@ -395,6 +396,11 @@ def apply_exec_guard(name, arguments, reject_shell_writes):
     if rewritten:
         data["cmd"] = rewritten
         return json.dumps(data)
+    if DELIMITER_BASE in cmd:
+        # A command this proxy generated, fed back through the guard. Its patch body is not
+        # shell: an HTML patch once matched '>Note' as a redirect on the second pass and the
+        # generated command was rejected as a shell write.
+        return arguments
 
     forbidden = FORBIDDEN_SHELL_WRITE
     if not forbidden.search(cmd):

@@ -3,8 +3,11 @@ import re
 import shlex
 
 
+DELIMITER_BASE = "PATCH_LLAMACODEX"
+
+
 def patch_delimiter(patch):
-    base = "PATCH_LLAMACODEX"
+    base = DELIMITER_BASE
     delimiter = base
     counter = 1
     while re.search(rf"^{re.escape(delimiter)}$", patch, re.MULTILINE):

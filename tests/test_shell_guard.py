@@ -469,3 +469,16 @@ def test_single_section_body_still_rewritten_once():
     )
     data = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))
     assert data["cmd"].count("apply_patch <<") == 1
+
+
+def test_generated_block_survives_a_second_guard_pass():
+    # The proxy rewrites a write into a conditional apply_patch block, then the same pipeline
+    # runs the guard over that block again. HTML in the patch body matched the redirect rule
+    # (">Note" from "<strong>Note %d") and the generated command was rejected.
+    cmd = "cat > app.py <<'EOF'\nhtml = '<li><strong>Note %d</strong></li>'\nEOF"
+    first = proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True)
+    generated = json.loads(first)["cmd"]
+    assert proxy.DELIMITER_BASE in generated
+
+    second = proxy.apply_exec_guard("exec_command", first, True)
+    assert second == first, "second pass changed or rejected the generated block"
