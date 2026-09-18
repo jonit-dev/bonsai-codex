@@ -545,3 +545,22 @@ def test_python_heredoc_file_write_is_still_rejected():
     cmd = "python3 - <<'EOF'\nfrom pathlib import Path\nPath('app.py').write_text('x')\nEOF"
     out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
     assert "proxy rejected this edit command" in out
+
+
+def test_replace_without_a_closing_marker_still_splits():
+    # The shape that reached apply_patch as one patch: a delete+add replace with no
+    # '*** End Patch'. Only the branch where the marker was already present split operations,
+    # so this form was delivered whole and apply_patch rejected it ("multiple operations
+    # target <path>"), leaving the file deleted.
+    cmd = (
+        "cd /tmp/demo && apply_patch <<'PATCH'\n"
+        "*** Begin Patch\n"
+        "*** Delete File: app.py\n"
+        "*** Add File: app.py\n"
+        "+import json\n"
+        "PATCH"
+    )
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert out.count("apply_patch <<") == 2
+    assert out.index("*** Delete File: app.py") < out.index("*** Add File: app.py")
+    assert "cd /tmp/demo &&" in out

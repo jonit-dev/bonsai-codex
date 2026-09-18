@@ -285,6 +285,22 @@ def complete_patch(text):
     return "\n".join(lines)
 
 
+def patch_commands_for(patch_text, trailing=""):
+    """One apply_patch invocation per file operation, keeping any trailing commands.
+
+    Every exit path of the heredoc rewrite goes through here: a delete+add replace reaches
+    apply_patch in several different shapes (with or without its closing marker, before or
+    after the shell delimiter) and Codex's apply_patch rejects two operations on one path
+    whichever way it arrives.
+    """
+    parts = split_patch_operations(patch_text)
+    if parts:
+        commands = [apply_patch_command(repair_add_file_content_lines(part)) for part in parts]
+    else:
+        commands = [apply_patch_command(repair_add_file_content_lines(patch_text))]
+    return with_trailing_commands("\n".join(commands), trailing)
+
+
 def rewrite_apply_patch_heredoc_command(cmd):
     match = re.match(
         r"^\s*apply_patch\s*<<\s*(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_-]*)\1\s*\n",
@@ -331,10 +347,10 @@ def rewrite_apply_patch_heredoc_command(cmd):
         if line.strip() != "*** End Patch":
             continue
         repaired = "\n".join([*body_lines, line])
-        return apply_patch_command(repaired)
+        return patch_commands_for(repaired, trailing)
     if body_lines and body_lines[0].strip() == "*** Begin Patch":
         repaired = "\n".join([*body_lines, "*** End Patch"])
-        return apply_patch_command(repaired)
+        return patch_commands_for(repaired, trailing)
     return None
 
 
