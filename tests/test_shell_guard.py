@@ -538,3 +538,10 @@ def test_real_write_outside_a_heredoc_body_is_still_caught():
     cmd = "cat > notes.txt <<'EOF'\nnotes\nEOF\nrm -rf src"
     out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
     assert "proxy rejected this edit command" in out
+
+
+def test_python_heredoc_file_write_is_still_rejected():
+    # Stripping heredoc bodies must not hide a write inside a script heredoc.
+    cmd = "python3 - <<'EOF'\nfrom pathlib import Path\nPath('app.py').write_text('x')\nEOF"
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert "proxy rejected this edit command" in out

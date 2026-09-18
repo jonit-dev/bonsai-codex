@@ -395,11 +395,20 @@ HEREDOC_START = re.compile(
 )
 
 
-def shell_without_heredoc_bodies(cmd):
-    """The shell commands in cmd, with every heredoc body removed.
+def looks_like_patch_data(lines):
+    return any(
+        line.strip().startswith("*** ") or line.startswith("--- ") or line.startswith("+++ ")
+        for line in lines
+    )
 
-    A heredoc body is data, not shell. `<!DOCTYPE html>` and '<li><strong>Note' inside a patch
-    matched the redirect rule and got whole edits rejected, whatever delimiter the model chose.
+
+def shell_without_heredoc_bodies(cmd):
+    """The shell commands in cmd, with patch heredoc bodies removed.
+
+    A patch body is data, not shell: `<!DOCTYPE html>` and '<li><strong>Note' matched the
+    redirect rule and got whole edits rejected, whatever delimiter the model chose. Only
+    patch-shaped bodies are dropped: a heredoc fed to python or a shell is code, and a file
+    write hidden in one still has to be caught.
     """
     lines = cmd.splitlines()
     kept, index = [], 0
@@ -409,8 +418,12 @@ def shell_without_heredoc_bodies(cmd):
         index += 1
         for match in HEREDOC_START.finditer(line):
             delimiter = match.group("delimiter")
+            start = index
             while index < len(lines) and lines[index].strip() != delimiter:
                 index += 1
+            body = lines[start:index]
+            if not looks_like_patch_data(body):
+                kept.extend(body)
             if index < len(lines):
                 kept.append(lines[index])
                 index += 1
