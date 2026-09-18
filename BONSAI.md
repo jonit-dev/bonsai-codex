@@ -23,6 +23,21 @@ What is in the repository:
 Sections below are the measured notes: what the hardware does, the fixes this needs, what the
 model is actually good at, and where it stops being useful. Numbers are real runs, not estimates.
 
+## Upstream
+
+This repository is a standalone copy of [llama-codex](https://github.com/jonit-dev/llama-codex)
+plus the local Bonsai harness. It is not a GitHub fork: a single account cannot own both a
+parent and its fork, so the relationship is recorded here instead. To pick up upstream proxy
+changes:
+
+```sh
+git remote add upstream git@github.com:jonit-dev/llama-codex.git
+git fetch upstream && git merge upstream/main
+```
+
+The runtime fixes listed further down are already on `main` here; upstream carries them on
+`fix/bonsai-live-runtime`.
+
 ## Hardware and software
 
 | | |
