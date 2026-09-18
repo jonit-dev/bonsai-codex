@@ -267,7 +267,8 @@ def test_repairs_apply_patch_heredoc_missing_end_marker():
     assert "+import json" in data["cmd"]
     assert "+print('ok')" in data["cmd"]
     assert "*** End Patch\n" in data["cmd"]
-    assert data["cmd"].count("\nPATCH") == 1
+    # a delete+add replace runs as one invocation per operation
+    assert data["cmd"].count("apply_patch <<") == 2
 
 
 def test_non_target_exec_command_passes_through():
