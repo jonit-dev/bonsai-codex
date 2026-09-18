@@ -6,6 +6,7 @@ import shlex
 from .patches import (
     DELIMITER_BASE,
     add_file_patch,
+    repair_replace_file_header,
     apply_patch_command,
     apply_patch_compat_command,
     conditional_apply_patch_command,
@@ -341,7 +342,12 @@ def rewrite_apply_patch_heredoc_command(cmd):
     body_lines = lines[:first_delimiter_index]
     trailing = "\n".join(lines[first_delimiter_index + 1:])
     if any(line.strip() == "*** End Patch" for line in body_lines):
-        split = split_patch_operations("\n".join(body_lines))
+        original = "\n".join(body_lines)
+        if "*** Replace File:" in original:
+            repaired = repair_replace_file_header(original)
+            if repaired != original:
+                return patch_commands_for(repaired, trailing)
+        split = split_patch_operations(original)
         if split:
             commands = [apply_patch_command(repair_add_file_content_lines(part)) for part in split]
             rewritten = with_trailing_commands("\n".join(commands), trailing)

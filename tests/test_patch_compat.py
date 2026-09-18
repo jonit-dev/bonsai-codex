@@ -109,3 +109,27 @@ if __name__ == "__main__":
     test_unified_add_file_patch_becomes_conditional_apply_patch()
     test_repairs_malformed_wrapped_unified_diff_header()
     print('patch compatibility tests passed')
+
+
+def test_invented_replace_file_header_becomes_a_delete_and_add():
+    # The model invented '*** Replace File: p' and dumped the whole old/new body under it.
+    # apply_patch rejected the header; the '+' lines are the new file, so the edit survives.
+    cmd = (
+        "apply_patch <<'P'\n*** Begin Patch\n*** Replace File: app.py\n"
+        "-old line\n-another old\n+new line\n+second new\n*** End Patch\nP"
+    )
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert "*** Delete File: app.py" in out
+    assert "*** Add File: app.py" in out
+    assert "+new line" in out and "+second new" in out
+    assert "-old line" not in out
+    assert out.count("apply_patch <<") == 2
+
+
+def test_replace_header_with_added_context_is_left_alone():
+    cmd = (
+        "apply_patch <<'P'\n*** Begin Patch\n*** Replace File: app.py\n"
+        " context line\n+new line\n*** End Patch\nP"
+    )
+    out = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))["cmd"]
+    assert "*** Add File: app.py" not in out

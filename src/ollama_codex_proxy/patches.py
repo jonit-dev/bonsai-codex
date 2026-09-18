@@ -245,6 +245,46 @@ def unified_add_file_command(patch):
     return conditional_apply_patch_command(path, "\n".join(content))
 
 
+REPLACE_FILE_LINE = re.compile(r"^\*\*\* Replace File:\s*(?P<path>.+?)\s*$")
+
+
+def repair_replace_file_header(patch):
+    """Turn '*** Replace File: p' plus a full -/+ body into a delete and an add.
+
+    Models invent this header. The body it carries dumps the old file as '-' lines and the new
+    file as '+' lines, so the new content is exactly the '+' lines and the edit is recoverable.
+    Anything that is not a clean full-file dump is left alone for apply_patch to reject.
+    """
+    if not isinstance(patch, str) or "*** Replace File:" not in patch:
+        return patch
+    lines = patch.splitlines()
+    out, index = [], 0
+    while index < len(lines):
+        match = REPLACE_FILE_LINE.match(lines[index])
+        if not match:
+            out.append(lines[index])
+            index += 1
+            continue
+        path = match.group("path")
+        index += 1
+        added, clean = [], True
+        while index < len(lines) and not lines[index].startswith("*** "):
+            body_line = lines[index]
+            if body_line.startswith("+"):
+                added.append(body_line[1:])
+            elif body_line.startswith("-") or body_line.startswith("\\") or not body_line.strip():
+                pass
+            else:
+                clean = False
+            index += 1
+        if not clean or not added:
+            return patch
+        out.append(f"*** Delete File: {path}")
+        out.append(f"*** Add File: {path}")
+        out.extend(f"+{line}" for line in added)
+    return "\n".join(out)
+
+
 def extract_patch_argument(arguments):
     if is_patch_text(arguments):
         return sanitize_patch_text(arguments)
