@@ -274,10 +274,19 @@ def apply_exec_guard(name, arguments, reject_shell_writes):
     stripped = cmd.lstrip()
     if "llama-codex apply_patch compatibility" in cmd:
         return arguments
+    # `cd <dir> && apply_patch <<'PATCH' ...` is the same edit command. Without this the
+    # patch body falls through to the shell-write scan, where any HTML or shell-looking
+    # line inside the patch matches the redirect rule and the whole edit is rejected -
+    # observed with a <!DOCTYPE html> patch that never reached apply_patch.
+    prefix = ""
+    cd_prefix = re.match(r"^\s*cd\s+(?:\S+|'[^']*'|\"[^\"]*\")\s*&&\s*", cmd)
+    if cd_prefix:
+        prefix = cmd[: cd_prefix.end()]
+        stripped = cmd[cd_prefix.end():].lstrip()
     if stripped.startswith("apply_patch"):
-        rewritten = rewrite_apply_patch_shell_command(cmd)
+        rewritten = rewrite_apply_patch_shell_command(stripped)
         if rewritten:
-            data["cmd"] = rewritten
+            data["cmd"] = prefix + rewritten
             return json.dumps(data)
         return arguments
     rewritten = rewrite_shell_write_command(cmd)

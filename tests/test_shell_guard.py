@@ -338,3 +338,30 @@ def test_allows_python_read_but_rejects_python_write():
         True,
     )
     assert "proxy rejected this edit command" in json.loads(write_args)["cmd"]
+
+
+def test_apply_patch_after_cd_prefix_is_not_scanned_as_shell():
+    # An HTML patch body contains lines like ">Notes", which the shell-write scan reads as
+    # a redirect when the command is not recognized as apply_patch. With a `cd x &&`
+    # prefix the command was rejected and the model's edit was lost.
+    patch = "*** Begin Patch\n*** Add File: app.py\n+<!DOCTYPE html>\n+<html>\n*** End Patch"
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": f"cd /tmp/demo && apply_patch <<'PATCH'\n{patch}\nPATCH"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert "proxy rejected" not in data["cmd"]
+    assert "cd /tmp/demo &&" in data["cmd"]
+    assert "+<!DOCTYPE html>" in data["cmd"]
+
+
+def test_cd_prefix_patch_is_repaired_and_prefix_kept():
+    arguments = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "cd /tmp/demo && apply_patch <<'PATCH'\n*** Add File: app.py\n+import json\n*** End Patch\nPATCH"}),
+        True,
+    )
+    data = json.loads(arguments)
+    assert data["cmd"].startswith("cd /tmp/demo && apply_patch <<'")
+    assert "*** Begin Patch" in data["cmd"]
