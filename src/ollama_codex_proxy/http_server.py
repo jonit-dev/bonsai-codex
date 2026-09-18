@@ -21,6 +21,42 @@ def read_json(handler):
     return json.loads(body)
 
 
+PROMPT_BUDGET_FRACTION = float(os.environ.get("LLAMA_CODEX_PROMPT_BUDGET", "0.75"))
+ELIDED_FLOOR = 200
+
+
+def budget_prompt(payload, items, context_window=None):
+    """Keep a long conversation inside the window by shrinking its oldest tool output.
+
+    A long run grows past the server's context and llama-server answers 400
+    "exceeds the available context size", which ends the run: measured on tasks/web-app, the
+    window reached 24700 tokens against a 24576 limit after a large write. The newest turns
+    stay intact; the oldest tool results keep their first lines and say what was dropped.
+    """
+    if context_window is None:
+        context_window = int(os.environ.get("LLAMA_CODEX_CONTEXT_WINDOW", "32768"))
+    budget_chars = int(context_window * PROMPT_BUDGET_FRACTION * 4)
+    total = len(json.dumps(items))
+    if total <= budget_chars:
+        return payload
+    for item in items:
+        if total <= budget_chars:
+            break
+        if not isinstance(item, dict) or item.get("type") != "function_call_output":
+            continue
+        output = item.get("output")
+        if not isinstance(output, str) or len(output) <= ELIDED_FLOOR:
+            continue
+        dropped = len(output) - ELIDED_FLOOR
+        item["output"] = (
+            f"{output[:ELIDED_FLOOR]}\n"
+            f"[llama-codex proxy: {dropped} older characters elided to keep the request "
+            "inside the context window]"
+        )
+        total -= dropped
+    return payload
+
+
 def trim_tool_outputs(payload, limit=None):
     """Keep command output from eating the context window.
 
@@ -33,7 +69,10 @@ def trim_tool_outputs(payload, limit=None):
     if limit is None:
         limit = int(os.environ.get("LLAMA_CODEX_TOOL_OUTPUT_CHARS", "3000"))
     items = payload.get("input")
-    if limit <= 0 or not isinstance(items, list):
+    if not isinstance(items, list):
+        return payload
+    payload = budget_prompt(payload, items)
+    if limit <= 0:
         return payload
     for item in items:
         if not isinstance(item, dict) or item.get("type") != "function_call_output":

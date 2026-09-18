@@ -1,5 +1,5 @@
 from .cli import main
-from .http_server import Proxy, read_json, trim_tool_outputs
+from .http_server import Proxy, budget_prompt, read_json, trim_tool_outputs
 from .metadata import cap_positive_int, model_metadata
 from .patches import (
     add_file_patch,

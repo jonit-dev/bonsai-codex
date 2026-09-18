@@ -116,6 +116,26 @@ def test_should_leave_short_tool_output_untouched():
     assert proxy.trim_tool_outputs(payload, 100)["input"][0]["output"] == "ok"
 
 
+
+
+
+def test_should_shrink_oldest_tool_output_when_the_request_is_too_large():
+    items = [
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "task"}]},
+        {"type": "function_call_output", "call_id": "c1", "output": "old" * 20000},
+        {"type": "function_call_output", "call_id": "c2", "output": "new" * 2000},
+    ]
+    trimmed = proxy.budget_prompt({"input": items}, items, context_window=4096)
+    oldest, newest = trimmed["input"][1], trimmed["input"][2]
+    assert "older characters elided" in oldest["output"]
+    assert newest["output"] == "new" * 2000
+
+
+def test_should_leave_a_request_inside_the_budget_untouched():
+    items = [{"type": "function_call_output", "call_id": "c1", "output": "small"}]
+    assert proxy.budget_prompt({"input": items}, items, context_window=32768)["input"] == items
+
+
 if __name__ == "__main__":
     test_should_import_proxy_handler_from_facade_when_script_module_loaded()
     test_should_show_help_when_cli_invoked()
@@ -123,4 +143,6 @@ if __name__ == "__main__":
     test_should_forward_non_responses_post_with_json_body()
     test_should_trim_oversized_tool_output_before_forwarding()
     test_should_leave_short_tool_output_untouched()
+    test_should_shrink_oldest_tool_output_when_the_request_is_too_large()
+    test_should_leave_a_request_inside_the_budget_untouched()
     print("http proxy tests passed")
