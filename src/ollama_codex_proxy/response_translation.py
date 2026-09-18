@@ -12,6 +12,9 @@ from .recovery import (
     force_patch_first_missing_tool_command,
     patch_first_is_satisfied,
     premature_prose_command,
+    prose_draft_command,
+    read_target,
+    READ_ONLY_COMMAND,
     require_update_patch_after_prior_patch,
 )
 from .shell_guard import apply_exec_guard
@@ -247,6 +250,27 @@ def translate_tool_text_response(
                 return data
             continue
         name, arguments = parsed
+        # A model that pastes the implementation as a fenced code block and then re-reads the
+        # file loses the whole turn: the code never reaches a tool call. Send it back to the
+        # patch instead of letting the redundant read through.
+        if name.rsplit(".", 1)[-1] == "exec_command":
+            try:
+                cmd = json.loads(arguments).get("cmd", "")
+            except json.JSONDecodeError:
+                cmd = ""
+            if READ_ONLY_COMMAND.match(cmd):
+                draft_command = prose_draft_command(text, read_target(cmd))
+                if draft_command:
+                    call_id = "call_" + item.get("id", data.get("id", "ollama")).replace("-", "_")
+                    output[index] = {
+                        "id": "fc_" + call_id.removeprefix("call_"),
+                        "type": "function_call",
+                        "status": "completed",
+                        "call_id": call_id,
+                        "name": name,
+                        "arguments": json.dumps({"cmd": draft_command}),
+                    }
+                    return data
         name, arguments = translate_apply_patch_call(name, arguments, allowed_names)
         arguments = apply_exec_guard(name, arguments, reject_shell_writes)
         if force_patch_first and not patch_first_satisfied:

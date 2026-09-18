@@ -1,4 +1,5 @@
 import json
+import re
 import shlex
 
 
@@ -192,5 +193,49 @@ def premature_prose_command(text):
     message = (
         "llama-codex proxy rejected premature prose-only response: call exec_command with "
         "apply_patch or a verification command instead of saying what you will do."
+    )
+    return f"printf '%s\\n' {shlex.quote(message)} >&2; exit 2"
+
+FENCED_CODE_BLOCK = re.compile(r"```[A-Za-z0-9_+.-]*[ \t]*\n(?P<body>.*?)```", re.DOTALL)
+READ_ONLY_COMMAND = re.compile(r"^\s*(?:cd\s+\S+\s*&&\s*)?(?:cat|sed|head|tail|wc|ls|rg|grep|find|od|file|stat)\b")
+
+
+def drafted_code_block(text, min_lines=12):
+    """The body of the largest fenced code block, if it is big enough to be a file draft."""
+    largest = None
+    for match in FENCED_CODE_BLOCK.finditer(text or ""):
+        body = match.group("body")
+        if body.count("\n") + 1 < min_lines:
+            continue
+        if largest is None or len(body) > len(largest):
+            largest = body
+    return largest
+
+
+def read_target(cmd):
+    """The path a read-only command is about, so the nag can name the file to patch."""
+    try:
+        parts = shlex.split(cmd)
+    except ValueError:
+        return ""
+    for part in reversed(parts):
+        if part.startswith("-") or part in ("&&", "||", ";", "|"):
+            continue
+        if "/" in part or part.endswith((".py", ".ts", ".js", ".tsx", ".json", ".md", ".rs", ".go")):
+            return part
+    return ""
+
+
+def prose_draft_command(text, target=""):
+    """Direct a model that pasted an implementation into a message back to a tool call."""
+    block = drafted_code_block(text)
+    if block is None:
+        return None
+    lines = block.count("\n") + 1
+    where = f" for {target}" if target else ""
+    message = (
+        f"llama-codex proxy: you pasted {lines} lines of code as message text, so nothing was "
+        f"written. Send that code now as an apply_patch tool call{where}; the code is still in "
+        "the conversation. Do not re-read the file and do not paste code in a message again."
     )
     return f"printf '%s\\n' {shlex.quote(message)} >&2; exit 2"

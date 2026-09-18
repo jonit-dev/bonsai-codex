@@ -74,6 +74,9 @@ Operate mechanically:
   - Never search the whole repository (`rg --all-files`, `rg pattern` with no path, `find /`).
     Search the package you are editing.
   - One question per command; do not chain whole-file reads with `;`.
+- Never print code in a message. A file body, a function, or a patch that appears in your
+  text instead of in a tool call is a wasted turn: the file does not change. Draft in the
+  tool call itself.
 - Act early. Make your first edit after at most five read commands, and never read a file
   twice. If the task names the file to change and the test to write, read those two plus one
   example, then write. Reconnaissance is not progress.

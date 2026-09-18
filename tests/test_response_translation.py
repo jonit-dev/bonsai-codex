@@ -268,3 +268,47 @@ if __name__ == "__main__":
     test_translates_embedded_patch_text_to_exec_command()
     test_translates_embedded_unified_diff_text_to_exec_command()
     print('response translation tests passed')
+
+
+def test_pasted_code_block_with_a_read_call_becomes_a_patch_directive():
+    body = "\n".join(f"    line_{i} = {i}" for i in range(15))
+    text = f"Let me write a full handler:\n```python\ndef handle():\n{body}\n```\n"
+    response = {
+        "output": [
+            {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": text}],
+            },
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": "cd /tmp/demo && cat app.py"}),
+            },
+        ]
+    }
+    translated = proxy.translate_tool_text_response(response, {"exec_command"}, reject_shell_writes=True)
+    calls = [item for item in translated["output"] if item["type"] == "function_call"]
+    cmd = json.loads(calls[-1]["arguments"])["cmd"]
+    assert "pasted 17 lines of code as message text" in cmd
+    assert "apply_patch tool call for app.py" in cmd
+    assert "cat app.py" not in cmd
+
+
+def test_pasted_code_block_with_a_patch_call_is_left_alone():
+    body = "\n".join(f"+line_{i} = {i}" for i in range(15))
+    text = f"```python\n{body}\n```\n"
+    patch = f"*** Begin Patch\n*** Add File: app.py\n{body}\n*** End Patch"
+    response = {
+        "output": [
+            {"type": "message", "id": "msg_1", "role": "assistant",
+             "content": [{"type": "output_text", "text": text}]},
+            {"type": "function_call", "name": "exec_command",
+             "arguments": json.dumps({"cmd": f"apply_patch <<'PATCH'\n{patch}\nPATCH"})},
+        ]
+    }
+    translated = proxy.translate_tool_text_response(response, {"exec_command"}, reject_shell_writes=True)
+    calls = [item for item in translated["output"] if item["type"] == "function_call"]
+    assert "pasted" not in json.loads(calls[-1]["arguments"])["cmd"]
+    assert "*** Add File: app.py" in json.loads(calls[-1]["arguments"])["cmd"]
