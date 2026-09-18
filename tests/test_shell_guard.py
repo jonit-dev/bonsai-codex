@@ -322,3 +322,19 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(check):
             check()
     print('shell guard tests passed')
+
+
+def test_allows_python_read_but_rejects_python_write():
+    read_args = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "python3 -c \"print(repr(open('api.py').read()))\""}),
+        True,
+    )
+    assert json.loads(read_args)["cmd"].startswith("python3 -c")
+
+    write_args = proxy.apply_exec_guard(
+        "exec_command",
+        json.dumps({"cmd": "python3 -c \"open('api.py','w').write('x')\""}),
+        True,
+    )
+    assert "proxy rejected this edit command" in json.loads(write_args)["cmd"]

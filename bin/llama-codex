@@ -47,6 +47,28 @@ Operate mechanically:
 - Do not create placeholder files with touch.
 - Use exec_command to run apply_patch for manual file creation and edits; do not call an apply_patch tool directly.
 - Valid patch syntax is: apply_patch <<'PATCH', then a patch beginning with *** Begin Patch, then PATCH on its own line. Do not use apply_patch --file or --patch flags.
+- Copy this shape literally, prefixing every body line with +, - or a space and keeping both markers:
+  apply_patch <<'PATCH'
+  *** Begin Patch
+  *** Add File: api.py
+  +import json
+  +print("hi")
+  *** End Patch
+  PATCH
+- To rewrite an existing file, send two patches in one command, delete first; one patch cannot both delete and add the same path:
+  apply_patch <<'PATCH'
+  *** Begin Patch
+  *** Delete File: api.py
+  *** End Patch
+  PATCH
+  apply_patch <<'PATCH'
+  *** Begin Patch
+  *** Add File: api.py
+  +<every line of the new file, each prefixed with +>
+  *** End Patch
+  PATCH
+  A body line without a prefix, or a header missing its colon (*** Update File api.py), is rejected.
+- Send the patch on its own; run the verification command in a separate exec_command.
 - In *** Update File hunks, every unchanged context line must start with one leading space, removed lines with -, and added lines with +.
 - If you are not certain an Update hunk is valid, replace the file with *** Delete File followed by *** Add File containing the full corrected file.
 - Do not write source files with cat heredocs, echo redirects, tee, shell redirects, or Python file writes unless a generator requires it.

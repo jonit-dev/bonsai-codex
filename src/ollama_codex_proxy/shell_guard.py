@@ -37,7 +37,7 @@ FORBIDDEN_SHELL_WRITE = re.compile(
     r"\bsed\s+-i\b|"
     r"\bperl\s+-i\b|"
     r">\s*[\w./~-]+|"
-    r"\bpython3?\b.*\b(open|write_text)\s*\(",
+    r"\bpython3?\b.*(\bopen\s*\([^)]*,\s*['\"][wax]|\bopen\s*\([^)]*,\s*mode\s*=\s*['\"][wax]|\bwrite_text\s*\(|\bwrite_bytes\s*\()",
     re.DOTALL,
 )
 
