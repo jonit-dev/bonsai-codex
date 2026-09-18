@@ -20,6 +20,37 @@ def read_json(handler):
     return json.loads(body)
 
 
+def fold_instructions_into_leading_message(payload):
+    """Keep exactly one system message, at position 0, for strict chat templates.
+
+    llama.cpp's Responses -> chat conversion turns both `instructions` and a leading
+    developer/system input message into system messages, and the Qwen3.8 template then
+    rejects the request with "System message must be at the beginning". Folding the
+    instructions into that leading message keeps the same text at the same priority
+    without producing a second system message.
+    """
+    instructions = payload.get("instructions")
+    items = payload.get("input")
+    if not isinstance(instructions, str) or not instructions.strip():
+        return payload
+    if not isinstance(items, list) or not items:
+        return payload
+    first = items[0]
+    if not isinstance(first, dict) or first.get("type") != "message":
+        return payload
+    if first.get("role") not in ("developer", "system"):
+        return payload
+    content = first.get("content")
+    if isinstance(content, str):
+        first["content"] = instructions + "\n\n" + content
+    elif isinstance(content, list):
+        first["content"] = [{"type": "input_text", "text": instructions}] + content
+    else:
+        return payload
+    payload.pop("instructions", None)
+    return payload
+
+
 class Proxy(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -83,6 +114,7 @@ class Proxy(BaseHTTPRequestHandler):
                 )
                 payload["options"] = options
             stream_response = bool(payload.get("stream"))
+            payload = fold_instructions_into_leading_message(payload)
             force_patch_first = (
                 payload_requests_force_patch_first(payload)
                 and not payload_contains_successful_patch_output(payload)
