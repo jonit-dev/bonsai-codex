@@ -213,6 +213,46 @@ def malformed_apply_patch_command(cmd):
     )
 
 
+def split_patch_sections(body_lines):
+    """Split a heredoc body that closes one patch and opens another into its sections.
+
+    A model replacing a file often writes '*** End Patch' before the second operation:
+
+        *** Begin Patch
+        *** Delete File: f
+        *** End Patch
+        *** Add File: f
+        +...
+
+    apply_patch honours the first End marker and silently drops the rest, so the file is
+    deleted and never rewritten. Running each section as its own invocation keeps the
+    model's intent.
+    """
+    sections, current = [], []
+    for line in body_lines:
+        stripped = line.strip()
+        if stripped == "*** Begin Patch" and current:
+            sections.append(current)
+            current = [line]
+            continue
+        current.append(line)
+        if stripped == "*** End Patch":
+            sections.append(current)
+            current = []
+    if any(line.strip() for line in current):
+        sections.append(current)
+    return ["\n".join(section) for section in sections if any(line.strip() for line in section)]
+
+
+def complete_patch(text):
+    lines = text.splitlines()
+    if not any(line.strip() == "*** Begin Patch" for line in lines):
+        lines = ["*** Begin Patch", *lines]
+    if not any(line.strip() == "*** End Patch" for line in lines):
+        lines = [*lines, "*** End Patch"]
+    return "\n".join(lines)
+
+
 def rewrite_apply_patch_heredoc_command(cmd):
     match = re.match(
         r"^\s*apply_patch\s*<<\s*(?P<quote>['\"]?)(?P<delimiter>[A-Za-z_][A-Za-z0-9_-]*)\1\s*\n",
@@ -230,6 +270,15 @@ def rewrite_apply_patch_heredoc_command(cmd):
     body_lines = lines[:first_delimiter_index]
     trailing = "\n".join(lines[first_delimiter_index + 1:])
     if any(line.strip() == "*** End Patch" for line in body_lines):
+        sections = split_patch_sections(body_lines)
+        if len(sections) > 1:
+            commands = []
+            for section in sections:
+                repaired = repair_add_file_content_lines(complete_patch(section))
+                commands.append(apply_patch_command(repaired))
+            joined = "\n".join(commands)
+            rewritten = with_trailing_commands(joined, trailing)
+            return rewritten or rejected_edit_command(cmd, FORBIDDEN_TAIL_MESSAGE)
         body = "\n".join(body_lines)
         repaired = repair_wrapped_unified_diff(body)
         if repaired != body:

@@ -433,3 +433,39 @@ def test_mv_of_an_unreadable_source_still_rejected():
         True,
     )
     assert "proxy rejected this edit command" in json.loads(arguments)["cmd"]
+
+
+def test_splits_a_body_that_closes_one_patch_and_opens_another():
+    # Observed on the medium fixture: the model deleted a file, wrote '*** End Patch', then
+    # added it back. apply_patch honours the first End marker, so the file was deleted and
+    # never rewritten. Each section now runs as its own invocation.
+    cmd = (
+        "apply_patch <<'PATCH'\n"
+        "*** Begin Patch\n"
+        "*** Delete File: tasklib/repository.py\n"
+        "*** End Patch\n"
+        "*** Add File: tasklib/repository.py\n"
+        "+import json\n"
+        "*** End Patch\n"
+        "PATCH"
+    )
+    data = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))
+    out = data["cmd"]
+    assert out.count("apply_patch <<") == 2
+    assert "*** Delete File: tasklib/repository.py" in out
+    assert "*** Add File: tasklib/repository.py" in out
+    assert "+import json" in out
+    assert out.index("*** Delete File") < out.index("*** Add File")
+
+
+def test_single_section_body_still_rewritten_once():
+    cmd = (
+        "apply_patch <<'PATCH'\n"
+        "*** Begin Patch\n"
+        "*** Add File: api.py\n"
+        "+import json\n"
+        "*** End Patch\n"
+        "PATCH"
+    )
+    data = json.loads(proxy.apply_exec_guard("exec_command", json.dumps({"cmd": cmd}), True))
+    assert data["cmd"].count("apply_patch <<") == 1
