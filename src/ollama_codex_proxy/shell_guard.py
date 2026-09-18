@@ -278,28 +278,6 @@ def split_patch_operations(patch_text):
     return ["\n".join([header, *operation, footer]) for operation in operations]
 
 
-DELETE_FILE_LINE = re.compile(r"^\*\*\* Delete File:\s*(?P<path>.+?)\s*$", re.MULTILINE)
-ADD_FILE_LINE = re.compile(r"^\*\*\* Add File:\s*(?P<path>.+?)\s*$", re.MULTILINE)
-
-
-def orphan_delete_command(cmd):
-    """Reject a patch that deletes a file without adding it back.
-
-    Seen repeatedly on the medium and web-app fixtures: the model deletes the file it just
-    wrote, intending to rewrite it, and the rewrite arrives a turn later - or never. The file
-    is then missing, the tests error on import, and the run spends turns recovering. A delete
-    paired with an add in the same patch is an explicit replace and is allowed.
-    """
-    if not DELETE_FILE_LINE.search(cmd) or ADD_FILE_LINE.search(cmd):
-        return None
-    return rejected_edit_command(
-        cmd,
-        "llama-codex proxy rejected a delete-only patch: it removes the file with nothing to "
-        "replace it. Send *** Delete File: <path> and *** Add File: <path> in the same patch, "
-        "or delete the file on purpose in a separate step.",
-    )
-
-
 def complete_patch(text):
     lines = text.splitlines()
     if not any(line.strip() == "*** Begin Patch" for line in lines):
@@ -496,10 +474,6 @@ def apply_exec_guard(name, arguments, reject_shell_writes):
         cmd = data["cmd"]
         changed = True
     stripped = cmd.lstrip()
-    orphan = orphan_delete_command(cmd)
-    if orphan:
-        data["cmd"] = orphan
-        return json.dumps(data)
     if "llama-codex apply_patch compatibility" in cmd or DELIMITER_BASE in cmd:
         # A command this proxy generated, fed back through the guard. Scanning or rewriting it
         # again mangles it: the compat block's own `cat >"$patch_file" <<'PATCH_LLAMACODEX'`
